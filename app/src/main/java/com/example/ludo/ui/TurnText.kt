@@ -27,3 +27,15 @@ fun turnMessage(s: LudoGameState): TurnMessage {
 fun seatLabel(s: LudoGameState, color: PlayerColor): String =
     if (s.bots.isEmpty()) color.label
     else "${color.label} · ${if (color in s.bots) "Computer" else "You"}"
+
+private val BotNames = listOf("Hamza", "Ayesha", "Bilal")
+
+/**
+ * Name shown in the player strips and messages. Computers get human names (in board order),
+ * you get the name from Settings, and in pass-and-play every seat is just its colour.
+ */
+fun seatName(s: LudoGameState, color: PlayerColor, humanName: String): String = when {
+    s.bots.isEmpty() -> color.label
+    color in s.bots -> BotNames[s.players.filter { it in s.bots }.indexOf(color).coerceAtLeast(0) % BotNames.size]
+    else -> humanName
+}

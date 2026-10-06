@@ -69,6 +69,7 @@ data class LudoGameState(
     val tokens: List<Token> = emptyList(),
     val turnIndex: Int = 0,
     val dice: Int? = null,
+    val lastRolls: Map<PlayerColor, Int> = emptyMap(), // each player's most recent roll, for the player strips
     val diceBy: PlayerColor? = null,
     val awaitingMove: Boolean = false,
     val noMove: Boolean = false,      // rolled, nothing can move: shown for a moment, then the turn passes

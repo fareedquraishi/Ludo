@@ -1,7 +1,14 @@
 package com.example.ludo.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.os.SystemClock
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ludo.audio.Fx
+import com.example.ludo.audio.SoundManager
+import com.example.ludo.data.Settings
+import com.example.ludo.data.SettingsStore
+import com.example.ludo.ui.seatName
 import com.example.ludo.engine.LudoEngine
 import com.example.ludo.model.LudoGameState
 import com.example.ludo.model.PlayerColor
@@ -12,11 +19,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 import kotlin.random.Random
 
-class LudoViewModel : ViewModel() {
+/** Identifies one "waiting for the human" moment: the timer restarts whenever this changes. */
+private data class TurnKey(val turnIndex: Int, val awaitingMove: Boolean, val logSize: Int)
+
+class LudoViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         // Pacing ("Normal" speed), in milliseconds
@@ -33,17 +47,97 @@ class LudoViewModel : ViewModel() {
     val state: StateFlow<LudoGameState?> = _state.asStateFlow()
     private var job: Job? = null
 
+    private val settingsStore = SettingsStore(app)
+    val settings: StateFlow<Settings> = settingsStore.flow
+    private val sound = SoundManager(app)
+
+    /** Fraction of the turn timer left (1 -> 0) while a human is to act; null = no timer running. */
+    private val _timer = MutableStateFlow<Float?>(null)
+    val timer: StateFlow<Float?> = _timer.asStateFlow()
+    private var settingsOpen = false
+    private var inBackground = false
+
+    init {
+        viewModelScope.launch { settings.collect { sound.apply(it) } }
+        viewModelScope.launch {
+            _state.map { turnKey(it) }.distinctUntilChanged().collectLatest { key -> runTurnTimer(key) }
+        }
+    }
+
+    fun updateSettings(change: (Settings) -> Settings) = settingsStore.update(change)
+    fun click() = sound.play(Fx.CLICK)
+
+    /** The settings dialog pauses the turn timer while it is open. */
+    fun setSettingsOpen(open: Boolean) { settingsOpen = open }
+
+    /** Called from the activity: music and the timer pause while the app is in the background. */
+    fun setForeground(foreground: Boolean) {
+        inBackground = !foreground
+        sound.setForeground(foreground)
+    }
+
+    override fun onCleared() {
+        sound.release()
+        super.onCleared()
+    }
+
+    private fun turnKey(s: LudoGameState?): TurnKey? {
+        if (s == null || s.winner != null || s.current in s.bots || s.busy || s.noMove) return null
+        return TurnKey(s.turnIndex, s.awaitingMove, s.log.size)
+    }
+
+    private suspend fun runTurnTimer(key: TurnKey?) {
+        _timer.value = null
+        if (key == null) return
+        val st = _state.value ?: return
+        if (!key.awaitingMove && st.bots.isNotEmpty()) sound.play(Fx.TURN)
+        val seconds = settings.value.timerSeconds
+        if (seconds <= 0) return
+
+        val total = seconds * 1000L
+        var left = total
+        var last = SystemClock.elapsedRealtime()
+        var lastTick = Int.MAX_VALUE
+        while (left > 0) {
+            val now = SystemClock.elapsedRealtime()
+            if (!settingsOpen && !inBackground) left -= now - last
+            last = now
+            _timer.value = (left.coerceAtLeast(0L).toFloat() / total)
+            val secLeft = ceil(left / 1000.0).toInt()
+            if (secLeft in 1..5 && secLeft < lastTick) {
+                lastTick = secLeft
+                sound.play(Fx.TICK)
+            }
+            delay(50)
+        }
+        _timer.value = 0f
+        onTimeout(key)
+    }
+
+    private fun onTimeout(key: TurnKey) {
+        val s = _state.value ?: return
+        if (turnKey(s) != key) return
+        if (!settings.value.autoPlayOnTimeout) {
+            val who = seatName(s, s.current, settings.value.displayName)
+            _state.update { it?.let { st -> LudoEngine.skipTurn(st, "$who ran out of time") } }
+            launchSequence { }
+        } else if (s.awaitingMove) {
+            val pick = LudoEngine.chooseAiMove(s) ?: return
+            launchSequence { doMove(pick.index) }
+        } else {
+            launchSequence { doRoll() }
+        }
+    }
+
     fun start(players: List<PlayerColor>, rules: Rules, bots: Set<PlayerColor>) {
         val first = rng.nextInt(players.size)
         val who = players[first]
-        val label = when {
-            who in bots -> "${who.label} (computer)"
-            bots.isNotEmpty() -> "You (${who.label})"
-            else -> who.label
-        }
-        _state.value = LudoEngine.newGame(players, rules, bots, first).copy(
-            notice = "$label starts (random draw)",
-            log = listOf("Random draw: ${who.label} starts"),
+        val game = LudoEngine.newGame(players, rules, bots, first)
+        val name = seatName(game, who, settings.value.displayName)
+        val notice = if (bots.isNotEmpty() && who !in bots) "You start (random draw)" else "$name starts (random draw)"
+        _state.value = game.copy(
+            notice = notice,
+            log = listOf("Random draw: $name starts"),
         )
         launchSequence { }   // if a computer starts, the bot loop takes over
     }
@@ -76,6 +170,7 @@ class LudoViewModel : ViewModel() {
     }
 
     private suspend fun doRoll() {
+        sound.play(Fx.DICE)
         _state.update { it?.let { st -> LudoEngine.roll(st, rng.nextInt(1, 7), autoPass = false) } }
         val after = _state.value ?: return
         if (after.noMove) {
@@ -96,13 +191,22 @@ class LudoViewModel : ViewModel() {
 
         for (p in (token.progress + 1)..target) {
             _state.value = LudoEngine.withTokenProgress(base, token.color, token.index, p)
+            sound.play(if (token.inBase) Fx.LEAVE else Fx.STEP)
             delay(STEP)
         }
         val captured = result.tokens.zip(base.tokens).any { (after, before) ->
             after.color != token.color && after.progress != before.progress
         }
+        val reachedHome = result.tokens.any { it.color == token.color && it.index == token.index && it.isHome }
+        when {
+            captured -> sound.play(Fx.CAPTURE)
+            reachedHome && result.winner == null -> sound.play(Fx.HOME)
+        }
         delay(if (captured) CAPTURE else SETTLE)
         _state.value = result
+        result.winner?.let { w ->
+            sound.play(if (result.bots.isEmpty() || w !in result.bots) Fx.WIN else Fx.LOSE)
+        }
     }
 
     /** Plays computer turns, one after another, with pauses, until it is a human's turn. */

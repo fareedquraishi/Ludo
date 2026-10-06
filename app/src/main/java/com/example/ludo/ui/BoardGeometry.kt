@@ -13,6 +13,14 @@ data class Pt(val x: Float, val y: Float) {
  * Cell (col,row) for every original block number, taken from the block order in index.php:
  * left arm rows 6..8, top arm cols 6..8, right arm rows 6..8, bottom arm cols 6..8.
  */
+/** Token slots inside a 6x6 base: a tighter 2x2 cluster around the middle of the inner square. */
+object BaseSlot {
+    private const val NEAR = 2.0f
+    private const val FAR = 4.0f
+    fun x(index: Int) = if (index % 2 == 0) NEAR else FAR
+    fun y(index: Int) = if (index < 2) NEAR else FAR
+}
+
 object BoardGeometry {
     const val GRID = 15
 
@@ -54,7 +62,7 @@ object BoardGeometry {
         return when {
             t.inBase -> {
                 val (ox, oy) = baseOrigin(t.color)
-                Pt(ox + if (t.index % 2 == 0) 1.5f else 4.5f, oy + if (t.index < 2) 1.5f else 4.5f)
+                Pt(ox + BaseSlot.x(t.index), oy + BaseSlot.y(t.index))
             }
             t.isHome -> {
                 val jitter = ((t.index % 2) - 0.5f) * 0.22f

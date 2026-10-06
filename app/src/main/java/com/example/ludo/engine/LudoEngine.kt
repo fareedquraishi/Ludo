@@ -47,6 +47,7 @@ object LudoEngine {
         val rolled = s.copy(
             dice = value,
             diceBy = s.current,
+            lastRolls = s.lastRolls + (s.current to value),
             sixStreak = if (value == 6) s.sixStreak + 1 else 0,
             notice = null,
         )
@@ -57,6 +58,10 @@ object LudoEngine {
             else -> rolled.copy(noMove = true, log = s.log + "${s.current.label} rolled $value - no move")
         }
     }
+
+    /** Used when a human's turn timer runs out and the setting is "skip turn". */
+    fun skipTurn(s: LudoGameState, reason: String): LudoGameState =
+        if (s.winner != null) s else passTurn(s.copy(log = s.log + reason))
 
     fun passAfterNoMove(s: LudoGameState): LudoGameState = if (s.noMove) passTurn(s) else s
 

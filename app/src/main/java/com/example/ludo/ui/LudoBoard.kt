@@ -1,5 +1,11 @@
-﻿package com.example.ludo.ui
+package com.example.ludo.ui
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -61,6 +67,13 @@ fun LudoBoard(
 ) {
     val movable = LudoEngine.movableTokens(state)
     val spots = BoardGeometry.layoutTokens(state.tokens)
+    // The player whose turn it is gets a home outline that fades in and out.
+    val pulse = rememberInfiniteTransition(label = "turn").animateFloat(
+        initialValue = 0.12f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(850, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "turnPulse",
+    )
 
     // Overlay logos are positioned via cell coordinates. We need pixel size to place them:
     // use BoxWithConstraints-free approach by measuring the Box inside the layout.
@@ -80,7 +93,7 @@ fun LudoBoard(
                         if (hit != null && spots.getValue(hit).dist(tx, ty) < 0.6f) onTokenTap(hit)
                     }
                 },
-        ) { drawBoard(state, movable, spots) }
+        ) { drawBoard(state, movable, spots, pulse.value) }
 
         BoardLogos(state)
     }
@@ -141,9 +154,9 @@ private fun BoardLogos(state: LudoGameState) {
     }
 }
 
-private fun DrawScope.drawBoard(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>) {
+private fun DrawScope.drawBoard(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>, pulse: Float) {
     drawFrame()
-    inset(BoardPad.toPx()) { drawCells(state, movable, spots) }
+    inset(BoardPad.toPx()) { drawCells(state, movable, spots, pulse) }
 }
 
 /** White mat with a dark #002D78 outline: thick outer line, thin parallel inner line. */
@@ -172,7 +185,7 @@ private fun DrawScope.drawFrame() {
     )
 }
 
-private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>) {
+private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>, pulse: Float) {
     val cell = size.width / BoardGeometry.GRID
     val active = state.players.toSet()
     val line = Color(0x33000000)
@@ -181,11 +194,34 @@ private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spot
         drawRect(line, Offset(c * cell, r * cell), Size(cell, cell), style = Stroke(1f))
     }
 
-    // Bases (inactive colours are dimmed)
+    // Bases: solid colour border, a light tint of the same colour inside, and a round slot per token.
+    // Inactive colours are dimmed and get a plain white inside.
     PlayerColor.entries.forEach { color ->
         val (ox, oy) = BoardGeometry.baseOrigin(color)
-        drawRect(color.tint.copy(alpha = if (color in active) 1f else 0.3f), Offset(ox * cell, oy * cell), Size(6 * cell, 6 * cell))
-        drawRoundRect(Color.White, Offset((ox + 1) * cell, (oy + 1) * cell), Size(4 * cell, 4 * cell), CornerRadius(cell * 0.4f))
+        val on = color in active
+        drawRect(color.tint.copy(alpha = if (on) 1f else 0.3f), Offset(ox * cell, oy * cell), Size(6 * cell, 6 * cell))
+        drawRoundRect(
+            if (on) lerp(color.tint, Color.White, 0.74f) else Color.White,
+            Offset((ox + 1) * cell, (oy + 1) * cell), Size(4 * cell, 4 * cell), CornerRadius(cell * 0.4f),
+        )
+        if (on) {
+            for (i in 0..3) {
+                val c = Offset((ox + BaseSlot.x(i)) * cell, (oy + BaseSlot.y(i)) * cell)
+                drawCircle(lerp(color.tint, Color.White, 0.52f), cell * 0.62f, c)
+                drawCircle(lerp(color.tint, Color.Black, 0.12f).copy(alpha = 0.55f), cell * 0.62f, c, style = Stroke(cell * 0.06f))
+            }
+        }
+    }
+
+    // Whose turn: the home outline fades in and out.
+    if (state.winner == null) {
+        val (ox, oy) = BoardGeometry.baseOrigin(state.current)
+        val d = cell * 0.14f
+        val tl = Offset(ox * cell + d, oy * cell + d)
+        val sz = Size(6 * cell - 2 * d, 6 * cell - 2 * d)
+        val r = CornerRadius(cell * 0.2f)
+        drawRoundRect(LudoColors.Frame.copy(alpha = pulse), tl, sz, r, style = Stroke(cell * 0.2f))
+        drawRoundRect(Color.White.copy(alpha = pulse), tl, sz, r, style = Stroke(cell * 0.08f))
     }
 
     // Main track: start squares tinted, safe squares marked with a dot
