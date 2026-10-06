@@ -46,9 +46,13 @@ private val InnerLine = 0.5.dp
 private val LineGap = 3.dp
 private val BoardPad = 9.dp
 
-// The 4 uncoloured "stopover" / safe squares on the track where the white Euro logo goes.
-private val StopoverSquares = setOf(10, 23, 36, 49)
-
+// The 4 uncoloured stopover/safe squares and the colour of the arm they sit in.
+private val StopoverSquares = linkedMapOf(
+    10 to PlayerColor.RED,
+    23 to PlayerColor.BLUE,
+    36 to PlayerColor.YELLOW,
+    49 to PlayerColor.GREEN,
+)
 @Composable
 fun LudoBoard(
     state: LudoGameState,
@@ -97,30 +101,19 @@ private fun BoardLogos(state: LudoGameState) {
         val padPx = with(LocalDensity.current) { padDp.toPx() }
         val cellPx = (boxPx - 2 * padPx) / BoardGeometry.GRID
 
-        // Small white Euro logo inside a navy disc on each uncoloured stopover square
-        StopoverSquares.forEach { sq ->
+        // White Euro logo on each stopover square (the tile itself is now coloured)
+        StopoverSquares.forEach { (sq, colour) ->
             val (c, r) = BoardGeometry.trackCells.getValue(sq)
-            val discPx = cellPx * 0.78f
-            val logoPx = cellPx * 0.60f
+            val logoPx = cellPx * 0.72f
             val centreX = padPx + (c + 0.5f) * cellPx
             val centreY = padPx + (r + 0.5f) * cellPx
-
-            // Navy disc behind the logo so the white logo reads on the white tile
-            androidx.compose.foundation.Canvas(
-                modifier = Modifier
-                    .offset(
-                        x = with(LocalDensity.current) { (centreX - discPx / 2f).toDp() },
-                        y = with(LocalDensity.current) { (centreY - discPx / 2f).toDp() },
-                    )
-                    .size(with(LocalDensity.current) { discPx.toDp() }),
-            ) {
-                drawCircle(LudoColors.Frame)
-            }
+            val dim = if (colour in state.players) 1.0f else 0.4f
 
             Image(
                 painter = painterResource(R.drawable.euro_logo_white_cell),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
+                alpha = dim,
                 modifier = Modifier
                     .offset(
                         x = with(LocalDensity.current) { (centreX - logoPx / 2f).toDp() },
@@ -197,11 +190,18 @@ private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spot
 
     // Main track: start squares tinted, safe squares marked with a dot
     BoardGeometry.trackCells.forEach { (sq, rc) ->
-        val owner = PlayerColor.entries.firstOrNull { it.startSquare == sq }
-        cellRect(rc.first, rc.second, owner?.tint ?: Color.White)
-        if (sq in LudoEngine.SAFE_SQUARES) {
+        val entryOwner = PlayerColor.entries.firstOrNull { it.startSquare == sq }
+        val stopoverColour = StopoverSquares[sq]
+        val fill = when {
+            stopoverColour != null -> stopoverColour.tint
+            entryOwner != null -> entryOwner.tint
+            else -> Color.White
+        }
+        cellRect(rc.first, rc.second, fill)
+        // small safe-square dot, but skip on stopover tiles (the logo sits there now)
+        if (sq in LudoEngine.SAFE_SQUARES && stopoverColour == null) {
             drawCircle(
-                if (owner != null) Color(0xAAFFFFFF) else Color(0x66000000),
+                if (entryOwner != null) Color(0xAAFFFFFF) else Color(0x66000000),
                 cell * 0.18f,
                 Offset((rc.first + 0.5f) * cell, (rc.second + 0.5f) * cell),
             )
