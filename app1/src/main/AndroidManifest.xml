@@ -3,7 +3,7 @@
     <application
         android:label="Ludo"
         android:allowBackup="true"
-        android:theme="@style/Theme.Ludo">
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
             android:name=".MainActivity"
             android:exported="true">

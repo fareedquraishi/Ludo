@@ -1,6 +1,5 @@
 package com.example.ludo.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -15,11 +14,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -35,7 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,15 +49,6 @@ fun LudoScreen(viewModel: LudoViewModel = viewModel()) {
     if (s == null) SetupPanel(onStart = viewModel::start) else GameContent(s, viewModel)
 }
 
-@Composable
-private fun PanelCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = LudoColors.NavyDeep),
-        border = BorderStroke(1.dp, LudoColors.Teal),
-    ) { content() }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SetupPanel(onStart: (GameMode, Rules, Set<PlayerColor>) -> Unit) {
@@ -68,38 +56,30 @@ private fun SetupPanel(onStart: (GameMode, Rules, Set<PlayerColor>) -> Unit) {
     var sixLimit by remember { mutableStateOf<Int?>(null) }
     var vsComputer by remember { mutableStateOf(true) }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
-    ) {
-        BrandTitle(size = 64.sp)
-        PanelCard(Modifier.fillMaxWidth().widthIn(max = 480.dp)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Players", fontWeight = FontWeight.SemiBold)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GameMode.entries.forEach { m ->
-                        FilterChip(selected = mode == m, onClick = { mode = m }, label = { Text(m.label) })
-                    }
-                }
-                Text("Consecutive sixes allowed", fontWeight = FontWeight.SemiBold)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf<Int?>(null, 2, 3, 4, 5).forEach { n ->
-                        FilterChip(selected = sixLimit == n, onClick = { sixLimit = n }, label = { Text(n?.toString() ?: "Unlimited") })
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Switch(checked = vsComputer, onCheckedChange = { vsComputer = it })
-                    Text("Computer plays everyone except Green")
-                }
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("Ludo", style = MaterialTheme.typography.headlineLarge)
+        Text("Players")
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GameMode.entries.forEach { m ->
+                FilterChip(selected = mode == m, onClick = { mode = m }, label = { Text(m.label) })
             }
+        }
+        Text("Consecutive sixes allowed")
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf<Int?>(null, 2, 3, 4, 5).forEach { n ->
+                FilterChip(selected = sixLimit == n, onClick = { sixLimit = n }, label = { Text(n?.toString() ?: "Unlimited") })
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Switch(checked = vsComputer, onCheckedChange = { vsComputer = it })
+            Text("Computer plays everyone except Green")
         }
         Button(
             onClick = {
                 val bots = if (vsComputer) mode.players.drop(1).toSet() else emptySet()
                 onStart(mode, Rules(sixLimit = sixLimit), bots)
             },
-        ) { Text("Start game", fontWeight = FontWeight.Bold) }
+        ) { Text("Start game") }
     }
 }
 
@@ -107,20 +87,17 @@ private fun SetupPanel(onStart: (GameMode, Rules, Set<PlayerColor>) -> Unit) {
 private fun GameContent(s: LudoGameState, vm: LudoViewModel) {
     val humanTurn = s.current !in s.bots
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        BrandTitle(size = 30.sp)
         StatusCard(s, humanTurn)
         LudoBoard(s, onTokenTap = vm::onTokenTap, modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = vm::rollDice, enabled = s.canRoll && humanTurn) { Text("Roll dice", fontWeight = FontWeight.Bold) }
+            Button(onClick = vm::rollDice, enabled = s.canRoll && humanTurn) { Text("Roll dice") }
             DiceFace(s.dice)
         }
-        Column(Modifier.fillMaxWidth()) {
-            s.log.takeLast(3).forEach { Text(it, fontSize = 13.sp, color = LudoColors.Muted) }
-        }
+        Column(Modifier.fillMaxWidth()) { s.log.takeLast(4).forEach { Text(it, fontSize = 13.sp) } }
     }
     s.winner?.let { w ->
         AlertDialog(
@@ -133,12 +110,9 @@ private fun GameContent(s: LudoGameState, vm: LudoViewModel) {
 
 @Composable
 private fun StatusCard(s: LudoGameState, humanTurn: Boolean) {
-    PanelCard(Modifier.fillMaxWidth().widthIn(max = 560.dp)) {
-        Row(
-            Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Colour chip + normal text colour, so yellow stays readable on a light card
             Box(Modifier.size(18.dp).background(s.current.tint, CircleShape))
             Text(
                 when {
@@ -147,7 +121,7 @@ private fun StatusCard(s: LudoGameState, humanTurn: Boolean) {
                     s.awaitingMove -> "${s.current.label}: tap a highlighted token"
                     else -> "${s.current.label}'s turn: roll the dice"
                 },
-                fontSize = 17.sp,
+                fontSize = 18.sp,
             )
         }
     }
@@ -155,19 +129,9 @@ private fun StatusCard(s: LudoGameState, humanTurn: Boolean) {
 
 @Composable
 private fun DiceFace(value: Int?) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = androidx.compose.ui.graphics.Color.White,
-        border = BorderStroke(2.dp, LudoColors.Frame),
-        modifier = Modifier.size(56.dp),
-    ) {
+    Surface(shape = RoundedCornerShape(12.dp), color = Color.DarkGray, modifier = Modifier.size(56.dp)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                value?.toString() ?: "-",
-                color = LudoColors.Frame,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Black,
-            )
+            Text(value?.toString() ?: "-", color = Color.White, fontSize = 24.sp)
         }
     }
 }

@@ -8,34 +8,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.inset
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.dp
 import com.example.ludo.engine.LudoEngine
 import com.example.ludo.model.LudoGameState
 import com.example.ludo.model.PlayerColor
 import com.example.ludo.model.Token
 
-// Slightly richer than before so they stand out on the navy background.
 val PlayerColor.tint: Color
     get() = when (this) {
-        PlayerColor.GREEN -> Color(0xFF22A04B)
+        PlayerColor.GREEN -> Color(0xFF2E7D32)
         PlayerColor.RED -> Color(0xFFE53935)
         PlayerColor.BLUE -> Color(0xFF1E88E5)
-        PlayerColor.YELLOW -> Color(0xFFFFD21F)
+        PlayerColor.YELLOW -> Color(0xFFFDD835)
     }
-
-// Frame: 3dp outer line + 3dp gap + 0.5dp inner line + 2.5dp white mat = 9dp before the board cells.
-private val OuterLine = 3.dp
-private val InnerLine = 0.5.dp
-private val LineGap = 3.dp
-private val BoardPad = 9.dp
 
 @Composable
 fun LudoBoard(
@@ -51,49 +40,17 @@ fun LudoBoard(
             .aspectRatio(1f) // scales with the available width: phones, tablets, foldables
             .pointerInput(state) {
                 detectTapGestures { tap ->
-                    val pad = BoardPad.toPx()
-                    val cell = (size.width - 2 * pad) / BoardGeometry.GRID
-                    val tx = (tap.x - pad) / cell
-                    val ty = (tap.y - pad) / cell
-                    val hit = movable.minByOrNull { spots.getValue(it).dist(tx, ty) }
-                    if (hit != null && spots.getValue(hit).dist(tx, ty) < 0.6f) onTokenTap(hit)
+                    val cell = size.width / BoardGeometry.GRID
+                    val hit = movable.minByOrNull { spots.getValue(it).dist(tap.x / cell, tap.y / cell) }
+                    if (hit != null && spots.getValue(hit).dist(tap.x / cell, tap.y / cell) < 0.6f) {
+                        onTokenTap(hit)
+                    }
                 }
             },
     ) { drawBoard(state, movable, spots) }
 }
 
 private fun DrawScope.drawBoard(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>) {
-    drawFrame()
-    inset(BoardPad.toPx()) { drawCells(state, movable, spots) }
-}
-
-/** White mat with a dark #002D78 outline: thick outer line, thin parallel inner line. */
-private fun DrawScope.drawFrame() {
-    val w = size.width
-    val outer = OuterLine.toPx()
-    val hair = InnerLine.toPx()
-    val gap = LineGap.toPx()
-    val radius = 8.dp.toPx()
-
-    drawRoundRect(Color.White, size = size, cornerRadius = CornerRadius(radius))
-    drawRoundRect(
-        LudoColors.Frame,
-        topLeft = Offset(outer / 2, outer / 2),
-        size = Size(w - outer, w - outer),
-        cornerRadius = CornerRadius(radius - outer / 2),
-        style = Stroke(outer),
-    )
-    val inset = outer + gap + hair / 2
-    drawRoundRect(
-        LudoColors.Frame,
-        topLeft = Offset(inset, inset),
-        size = Size(w - 2 * inset, w - 2 * inset),
-        cornerRadius = CornerRadius((radius - inset).coerceAtLeast(1.dp.toPx())),
-        style = Stroke(hair),
-    )
-}
-
-private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>) {
     val cell = size.width / BoardGeometry.GRID
     val active = state.mode.players.toSet()
     val line = Color(0x33000000)
@@ -138,23 +95,11 @@ private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spot
     tri(PlayerColor.BLUE.tint, p(9f, 6f), p(9f, 9f))
     tri(PlayerColor.YELLOW.tint, p(6f, 9f), p(9f, 9f))
 
-    // Tokens: soft shadow, dark rim, glossy radial fill. Movable ones get a #002D78 ring.
+    // Tokens (movable ones get a ring)
     state.tokens.forEach { t ->
         val c = spots.getValue(t).let { Offset(it.x * cell, it.y * cell) }
-        val r = cell * 0.34f
-        val tint = t.color.tint
-        drawCircle(Color(0x55000000), r, c + Offset(0f, cell * 0.05f))
-        drawCircle(Color(0xFF111111), r + cell * 0.04f, c)
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(lerp(tint, Color.White, 0.55f), tint, lerp(tint, Color.Black, 0.25f)),
-                center = c - Offset(r * 0.35f, r * 0.35f),
-                radius = r * 1.6f,
-            ),
-            radius = r,
-            center = c,
-        )
-        drawCircle(Color(0x66FFFFFF), r * 0.26f, c - Offset(r * 0.3f, r * 0.36f))
-        if (t in movable) drawCircle(LudoColors.Frame, cell * 0.47f, c, style = Stroke(cell * 0.09f))
+        drawCircle(Color.Black, cell * 0.38f, c)
+        drawCircle(t.color.tint, cell * 0.32f, c)
+        if (t in movable) drawCircle(Color.Black, cell * 0.47f, c, style = Stroke(cell * 0.08f))
     }
 }
