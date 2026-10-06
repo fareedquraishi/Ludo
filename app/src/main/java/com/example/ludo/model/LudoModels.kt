@@ -12,12 +12,21 @@ enum class PlayerColor(val label: String, val startSquare: Int) {
     YELLOW("Yellow", 41),
 }
 
-/** Same four modes as the original "Number of Players" select (2, 3A, 3B, 4). */
-enum class GameMode(val label: String, val players: List<PlayerColor>) {
-    TWO("2 players", listOf(PlayerColor.GREEN, PlayerColor.BLUE)),
-    THREE_A("3 players (A)", listOf(PlayerColor.GREEN, PlayerColor.RED, PlayerColor.BLUE)),
-    THREE_B("3 players (B)", listOf(PlayerColor.GREEN, PlayerColor.BLUE, PlayerColor.YELLOW)),
-    FOUR("4 players", PlayerColor.entries.toList()),
+/**
+ * Which colours play, derived from the number of players and the colour the user picked.
+ * 4 = everyone, 2 = you + the colour opposite you, 3 = you + the next two clockwise.
+ * The result is always in board order (Green, Red, Blue, Yellow) = turn order.
+ */
+object Seats {
+    fun of(count: Int, human: PlayerColor): List<PlayerColor> {
+        val all = PlayerColor.entries
+        val chosen = when (count) {
+            2 -> setOf(human, all[(human.ordinal + 2) % all.size])
+            3 -> setOf(human, all[(human.ordinal + 1) % all.size], all[(human.ordinal + 2) % all.size])
+            else -> all.toSet()
+        }
+        return all.filter { it in chosen }
+    }
 }
 
 /**
@@ -54,7 +63,7 @@ data class Rules(
 )
 
 data class LudoGameState(
-    val mode: GameMode = GameMode.FOUR,
+    val players: List<PlayerColor> = PlayerColor.entries.toList(),
     val rules: Rules = Rules(),
     val bots: Set<PlayerColor> = emptySet(),
     val tokens: List<Token> = emptyList(),
@@ -62,10 +71,13 @@ data class LudoGameState(
     val dice: Int? = null,
     val diceBy: PlayerColor? = null,
     val awaitingMove: Boolean = false,
+    val noMove: Boolean = false,      // rolled, nothing can move: shown for a moment, then the turn passes
+    val busy: Boolean = false,        // a token is hopping: ignore taps
     val sixStreak: Int = 0,
     val winner: PlayerColor? = null,
+    val notice: String? = null,       // e.g. "Blue starts (random draw)"
     val log: List<String> = emptyList(),
 ) {
-    val current: PlayerColor get() = mode.players[turnIndex]
-    val canRoll: Boolean get() = winner == null && !awaitingMove
+    val current: PlayerColor get() = players[turnIndex]
+    val canRoll: Boolean get() = winner == null && !awaitingMove && !noMove && !busy
 }

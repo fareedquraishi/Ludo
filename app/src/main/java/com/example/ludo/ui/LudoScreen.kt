@@ -35,14 +35,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.ludo.model.GameMode
 import com.example.ludo.model.LudoGameState
 import com.example.ludo.model.PlayerColor
 import com.example.ludo.model.Rules
+import com.example.ludo.model.Seats
 import com.example.ludo.viewmodel.LudoViewModel
 
 @Composable
@@ -63,8 +64,9 @@ private fun PanelCard(modifier: Modifier = Modifier, content: @Composable () -> 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SetupPanel(onStart: (GameMode, Rules, Set<PlayerColor>) -> Unit) {
-    var mode by remember { mutableStateOf(GameMode.FOUR) }
+private fun SetupPanel(onStart: (List<PlayerColor>, Rules, Set<PlayerColor>) -> Unit) {
+    var count by remember { mutableStateOf(4) }
+    var human by remember { mutableStateOf(PlayerColor.GREEN) }
     var sixLimit by remember { mutableStateOf<Int?>(null) }
     var vsComputer by remember { mutableStateOf(true) }
 
@@ -76,12 +78,28 @@ private fun SetupPanel(onStart: (GameMode, Rules, Set<PlayerColor>) -> Unit) {
         BrandTitle(size = 64.sp)
         PanelCard(Modifier.fillMaxWidth().widthIn(max = 480.dp)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Players", fontWeight = FontWeight.SemiBold)
+                Text("Number of players", fontWeight = FontWeight.SemiBold)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GameMode.entries.forEach { m ->
-                        FilterChip(selected = mode == m, onClick = { mode = m }, label = { Text(m.label) })
+                    listOf(2, 3, 4).forEach { n ->
+                        FilterChip(selected = count == n, onClick = { count = n }, label = { Text("$n players") })
                     }
                 }
+                Text("Your colour", fontWeight = FontWeight.SemiBold)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PlayerColor.entries.forEach { c ->
+                        FilterChip(
+                            selected = human == c,
+                            onClick = { human = c },
+                            label = { Text(c.label) },
+                            leadingIcon = { Box(Modifier.size(14.dp).background(c.tint, CircleShape)) },
+                        )
+                    }
+                }
+                Text(
+                    "Playing: " + Seats.of(count, human).joinToString(", ") { it.label },
+                    fontSize = 13.sp,
+                    color = LudoColors.Muted,
+                )
                 Text("Consecutive sixes allowed", fontWeight = FontWeight.SemiBold)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf<Int?>(null, 2, 3, 4, 5).forEach { n ->
@@ -90,14 +108,15 @@ private fun SetupPanel(onStart: (GameMode, Rules, Set<PlayerColor>) -> Unit) {
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Switch(checked = vsComputer, onCheckedChange = { vsComputer = it })
-                    Text("Computer plays everyone except Green")
+                    Text("Computer plays the other colours")
                 }
             }
         }
         Button(
             onClick = {
-                val bots = if (vsComputer) mode.players.drop(1).toSet() else emptySet()
-                onStart(mode, Rules(sixLimit = sixLimit), bots)
+                val players = Seats.of(count, human)
+                val bots = if (vsComputer) players.filter { it != human }.toSet() else emptySet()
+                onStart(players, Rules(sixLimit = sixLimit), bots)
             },
         ) { Text("Start game", fontWeight = FontWeight.Bold) }
     }
@@ -106,17 +125,24 @@ private fun SetupPanel(onStart: (GameMode, Rules, Set<PlayerColor>) -> Unit) {
 @Composable
 private fun GameContent(s: LudoGameState, vm: LudoViewModel) {
     val humanTurn = s.current !in s.bots
+    val youColor = if (s.bots.isNotEmpty()) s.players.firstOrNull { it !in s.bots } else null
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         BrandTitle(size = 30.sp)
+        youColor?.let { c ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(12.dp).background(c.tint, CircleShape))
+                Text("You are ${c.label}", fontSize = 13.sp, color = LudoColors.Muted)
+            }
+        }
         StatusCard(s, humanTurn)
         LudoBoard(s, onTokenTap = vm::onTokenTap, modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = vm::rollDice, enabled = s.canRoll && humanTurn) { Text("Roll dice", fontWeight = FontWeight.Bold) }
-            DiceFace(s.dice)
+            DiceFace(s.dice, s.diceBy?.tint ?: LudoColors.Frame)
         }
         Column(Modifier.fillMaxWidth()) {
             s.log.takeLast(3).forEach { Text(it, fontSize = 13.sp, color = LudoColors.Muted) }
@@ -125,7 +151,7 @@ private fun GameContent(s: LudoGameState, vm: LudoViewModel) {
     s.winner?.let { w ->
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("${w.label} wins!") },
+            title = { Text(if (s.bots.isNotEmpty() && w !in s.bots) "You win!" else "${w.label} wins!") },
             confirmButton = { TextButton(onClick = vm::reset) { Text("New game") } },
         )
     }
@@ -133,6 +159,21 @@ private fun GameContent(s: LudoGameState, vm: LudoViewModel) {
 
 @Composable
 private fun StatusCard(s: LudoGameState, humanTurn: Boolean) {
+    val solo = s.bots.isNotEmpty()
+    val name = s.current.label
+    val who = when {
+        !humanTurn -> "$name (computer)"
+        solo -> "You"
+        else -> name
+    }
+    val line = when {
+        s.winner != null -> "${s.winner.label} won"
+        s.noMove -> "$who rolled ${s.dice}: no move"
+        !humanTurn -> "$name (computer) is playing..."
+        s.busy -> "Moving..."
+        s.awaitingMove -> if (solo) "Your turn: tap a highlighted token" else "$name: tap a highlighted token"
+        else -> if (solo) "Your turn: roll the dice" else "$name's turn: roll the dice"
+    }
     PanelCard(Modifier.fillMaxWidth().widthIn(max = 560.dp)) {
         Row(
             Modifier.padding(14.dp),
@@ -140,25 +181,20 @@ private fun StatusCard(s: LudoGameState, humanTurn: Boolean) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Box(Modifier.size(18.dp).background(s.current.tint, CircleShape))
-            Text(
-                when {
-                    s.winner != null -> "${s.winner.label} won"
-                    !humanTurn -> "${s.current.label} (computer) is playing..."
-                    s.awaitingMove -> "${s.current.label}: tap a highlighted token"
-                    else -> "${s.current.label}'s turn: roll the dice"
-                },
-                fontSize = 17.sp,
-            )
+            Column {
+                Text(line, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                s.notice?.let { Text(it, fontSize = 13.sp, color = LudoColors.Muted) }
+            }
         }
     }
 }
 
 @Composable
-private fun DiceFace(value: Int?) {
+private fun DiceFace(value: Int?, ring: Color) {
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = androidx.compose.ui.graphics.Color.White,
-        border = BorderStroke(2.dp, LudoColors.Frame),
+        color = Color.White,
+        border = BorderStroke(3.dp, ring),
         modifier = Modifier.size(56.dp),
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

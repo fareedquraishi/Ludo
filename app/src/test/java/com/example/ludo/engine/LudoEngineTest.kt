@@ -1,17 +1,18 @@
 package com.example.ludo.engine
 
-import com.example.ludo.model.GameMode
 import com.example.ludo.model.LudoGameState
 import com.example.ludo.model.PlayerColor
 import com.example.ludo.model.Rules
+import com.example.ludo.model.Seats
 import com.example.ludo.model.Token
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LudoEngineTest {
 
-    private fun game(rules: Rules = Rules()) = LudoEngine.newGame(GameMode.FOUR, rules)
+    private fun game(rules: Rules = Rules()) = LudoEngine.newGame(Seats.of(4, PlayerColor.GREEN), rules)
 
     private fun LudoGameState.put(color: PlayerColor, index: Int, progress: Int) =
         copy(tokens = tokens.map { if (it.color == color && it.index == index) it.copy(progress = progress) else it })
@@ -68,5 +69,25 @@ class LudoEngineTest {
         assertEquals(PlayerColor.GREEN, s.current)
         s = LudoEngine.move(LudoEngine.roll(s, 6), 1)          // streak 2 -> limit reached
         assertEquals(PlayerColor.RED, s.current)
+    }
+
+    @Test fun seatsFollowChosenColour() {
+        assertEquals(listOf(PlayerColor.RED, PlayerColor.YELLOW), Seats.of(2, PlayerColor.RED))
+        assertEquals(listOf(PlayerColor.GREEN, PlayerColor.BLUE), Seats.of(2, PlayerColor.BLUE))
+        assertEquals(listOf(PlayerColor.GREEN, PlayerColor.BLUE, PlayerColor.YELLOW), Seats.of(3, PlayerColor.BLUE))
+        assertEquals(listOf(PlayerColor.GREEN, PlayerColor.RED, PlayerColor.YELLOW), Seats.of(3, PlayerColor.YELLOW))
+        assertEquals(4, Seats.of(4, PlayerColor.RED).size)
+    }
+
+    @Test fun noMoveWaitsBeforePassing() {
+        val s = LudoEngine.roll(game(), 3, autoPass = false)
+        assertTrue(s.noMove)
+        assertEquals(PlayerColor.GREEN, s.current)                       // still green while the roll is shown
+        assertEquals(PlayerColor.RED, LudoEngine.passAfterNoMove(s).current)
+    }
+
+    @Test fun startIndexDecidesWhoGoesFirst() {
+        val s = LudoEngine.newGame(Seats.of(4, PlayerColor.GREEN), startIndex = 2)
+        assertEquals(PlayerColor.BLUE, s.current)
     }
 }

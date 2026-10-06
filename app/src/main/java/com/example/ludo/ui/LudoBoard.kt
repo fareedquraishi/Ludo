@@ -95,7 +95,7 @@ private fun DrawScope.drawFrame() {
 
 private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>) {
     val cell = size.width / BoardGeometry.GRID
-    val active = state.mode.players.toSet()
+    val active = state.players.toSet()
     val line = Color(0x33000000)
     fun cellRect(c: Int, r: Int, fill: Color) {
         drawRect(fill, Offset(c * cell, r * cell), Size(cell, cell))

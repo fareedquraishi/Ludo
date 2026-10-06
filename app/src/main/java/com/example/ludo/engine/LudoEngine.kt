@@ -1,6 +1,5 @@
 package com.example.ludo.engine
 
-import com.example.ludo.model.GameMode
 import com.example.ludo.model.LudoGameState
 import com.example.ludo.model.PlayerColor
 import com.example.ludo.model.Rules
@@ -12,13 +11,18 @@ object LudoEngine {
     /** Squares with data-blocksp="1" in the original: the four starts plus four "star" squares. */
     val SAFE_SQUARES = setOf(2, 10, 15, 23, 28, 36, 41, 49)
 
-    fun newGame(mode: GameMode, rules: Rules = Rules(), bots: Set<PlayerColor> = emptySet()) =
-        LudoGameState(
-            mode = mode,
-            rules = rules,
-            bots = bots,
-            tokens = mode.players.flatMap { c -> List(4) { Token(c, it) } },
-        )
+    fun newGame(
+        players: List<PlayerColor>,
+        rules: Rules = Rules(),
+        bots: Set<PlayerColor> = emptySet(),
+        startIndex: Int = 0,
+    ) = LudoGameState(
+        players = players,
+        rules = rules,
+        bots = bots,
+        tokens = players.flatMap { c -> List(4) { Token(c, it) } },
+        turnIndex = startIndex,
+    )
 
     fun canMove(t: Token, dice: Int): Boolean = when {
         t.isHome -> false
@@ -32,21 +36,36 @@ object LudoEngine {
         return s.tokens.filter { it.color == s.current && canMove(it, dice) }
     }
 
-    fun roll(s: LudoGameState, value: Int): LudoGameState {
+    /**
+     * autoPass = true: with no legal move the turn passes immediately (used by tests).
+     * autoPass = false: the state is marked noMove so the UI can show the roll for a moment,
+     * then call passAfterNoMove().
+     */
+    fun roll(s: LudoGameState, value: Int, autoPass: Boolean = true): LudoGameState {
         require(value in 1..6)
         if (!s.canRoll) return s
         val rolled = s.copy(
             dice = value,
             diceBy = s.current,
             sixStreak = if (value == 6) s.sixStreak + 1 else 0,
+            notice = null,
         )
         val hasMove = s.tokens.any { it.color == s.current && canMove(it, value) }
-        return if (hasMove) {
-            rolled.copy(awaitingMove = true, log = s.log + "${s.current.label} rolled $value")
-        } else {
-            passTurn(rolled.copy(log = s.log + "${s.current.label} rolled $value - no move"))
+        return when {
+            hasMove -> rolled.copy(awaitingMove = true, log = s.log + "${s.current.label} rolled $value")
+            autoPass -> passTurn(rolled.copy(log = s.log + "${s.current.label} rolled $value - no move"))
+            else -> rolled.copy(noMove = true, log = s.log + "${s.current.label} rolled $value - no move")
         }
     }
+
+    fun passAfterNoMove(s: LudoGameState): LudoGameState = if (s.noMove) passTurn(s) else s
+
+    /** One hop of the move animation: shows the token at [progress]; nothing else changes yet. */
+    fun withTokenProgress(s: LudoGameState, color: PlayerColor, index: Int, progress: Int) = s.copy(
+        tokens = s.tokens.map { if (it.color == color && it.index == index) it.copy(progress = progress) else it },
+        awaitingMove = false,
+        busy = true,
+    )
 
     fun move(s: LudoGameState, tokenIndex: Int): LudoGameState {
         val dice = s.dice ?: return s
@@ -88,8 +107,9 @@ object LudoEngine {
     }
 
     private fun passTurn(s: LudoGameState) = s.copy(
-        turnIndex = (s.turnIndex + 1) % s.mode.players.size,
+        turnIndex = (s.turnIndex + 1) % s.players.size,
         awaitingMove = false,
+        noMove = false,
         sixStreak = 0,
     )
 
