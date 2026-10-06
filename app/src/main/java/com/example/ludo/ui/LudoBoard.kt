@@ -102,7 +102,7 @@ private fun BoardLogos(state: LudoGameState) {
         val padPx = with(LocalDensity.current) { padDp.toPx() }
         val cellPx = (boxPx - 2 * padPx) / BoardGeometry.GRID
 
-        val active = state.mode.players.toSet()
+        val active = state.players.toSet()
 
         // Small white Euro logo on each coloured entry square (dim if that colour isn't playing)
         EntrySquares.forEach { sq ->
@@ -178,7 +178,7 @@ private fun DrawScope.drawFrame() {
 
 private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>) {
     val cell = size.width / BoardGeometry.GRID
-    val active = state.mode.players.toSet()
+    val active = state.players.toSet()
     val line = Color(0x33000000)
     fun cellRect(c: Int, r: Int, fill: Color) {
         drawRect(fill, Offset(c * cell, r * cell), Size(cell, cell))
@@ -241,3 +241,4 @@ private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spot
         if (t in movable) drawCircle(LudoColors.Frame, cell * 0.47f, c, style = Stroke(cell * 0.09f))
     }
 }
+
