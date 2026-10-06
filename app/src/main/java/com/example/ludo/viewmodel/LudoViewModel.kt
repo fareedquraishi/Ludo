@@ -27,6 +27,23 @@ import kotlinx.coroutines.launch
 import kotlin.math.ceil
 import kotlin.random.Random
 
+/** "Ayesha beat Fareed!" pop-up shown over the board for a moment after a capture. */
+data class CaptureBanner(val id: Long, val text: String, val color: PlayerColor)
+
+/** Funny capture lines. All past tense, so they read right with "You" as well as with a name. */
+private val CaptureLines: List<(String, String) -> String> = listOf(
+    { a, b -> "$a beat $b!" },
+    { a, b -> "$a sent $b back to base!" },
+    { a, b -> "Boom! $a knocked out $b!" },
+    { a, b -> "Ouch! $b got caught by $a" },
+    { a, b -> "Not today, $b! - $a" },
+    { a, b -> "$a sent $b packing!" },
+    { a, b -> "Sorry $b, $a needed that square!" },
+    { a, b -> "$a stole the square from $b!" },
+    { a, b -> "$b took a trip home, thanks to $a" },
+    { a, b -> "Gotcha, $b! - $a" },
+)
+
 /** Identifies one "waiting for the human" moment: the timer restarts whenever this changes. */
 private data class TurnKey(val turnIndex: Int, val awaitingMove: Boolean, val logSize: Int)
 
@@ -34,12 +51,13 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         // Pacing ("Normal" speed), in milliseconds
-        const val THINK = 1000L      // banner shows, computer "thinks" before rolling
+        const val THINK = 600L       // banner shows, computer "thinks" before rolling
         const val DICE = 1000L       // computer's dice number stays visible before it moves
         const val NO_MOVE = 1100L    // "rolled N: no move" stays visible before the turn passes
         const val STEP = 230L        // time per square while a token hops
         const val CAPTURE = 350L     // beat at the destination when something is captured
         const val SETTLE = 120L      // beat at the destination otherwise
+        const val ROLL = 700L        // dice shuffle animation before the number appears
     }
 
     private val rng = Random.Default
@@ -54,6 +72,13 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
     /** Fraction of the turn timer left (1 -> 0) while a human is to act; null = no timer running. */
     private val _timer = MutableStateFlow<Float?>(null)
     val timer: StateFlow<Float?> = _timer.asStateFlow()
+    /** True while the dice is shuffling (the strip shows rolling faces). */
+    private val _rolling = MutableStateFlow(false)
+    val rolling: StateFlow<Boolean> = _rolling.asStateFlow()
+
+    private val _banner = MutableStateFlow<CaptureBanner?>(null)
+    val banner: StateFlow<CaptureBanner?> = _banner.asStateFlow()
+
     private var settingsOpen = false
     private var inBackground = false
 
@@ -144,13 +169,15 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
 
     fun reset() {
         job?.cancel()
+        _rolling.value = false
+        _banner.value = null
         _state.value = null
     }
 
     /** Human taps "Roll dice". */
     fun rollDice() {
         val s = _state.value ?: return
-        if (s.current in s.bots || !s.canRoll) return
+        if (s.current in s.bots || !s.canRoll || _rolling.value) return
         launchSequence { doRoll() }
     }
 
@@ -171,6 +198,12 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun doRoll() {
         sound.play(Fx.DICE)
+        _rolling.value = true
+        try {
+            delay(ROLL)
+        } finally {
+            _rolling.value = false
+        }
         _state.update { it?.let { st -> LudoEngine.roll(st, rng.nextInt(1, 7), autoPass = false) } }
         val after = _state.value ?: return
         if (after.noMove) {
@@ -198,6 +231,7 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
             after.color != token.color && after.progress != before.progress
         }
         val reachedHome = result.tokens.any { it.color == token.color && it.index == token.index && it.isHome }
+        if (captured) announceCapture(base, result, token.color)
         when {
             captured -> sound.play(Fx.CAPTURE)
             reachedHome && result.winner == null -> sound.play(Fx.HOME)
@@ -207,6 +241,18 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
         result.winner?.let { w ->
             sound.play(if (result.bots.isEmpty() || w !in result.bots) Fx.WIN else Fx.LOSE)
         }
+    }
+
+    private fun announceCapture(before: LudoGameState, after: LudoGameState, attacker: PlayerColor) {
+        val victims = after.tokens.zip(before.tokens)
+            .filter { (a, b) -> a.color != attacker && a.progress == Token.BASE && b.progress != Token.BASE }
+            .map { it.first.color }
+            .distinct()
+        if (victims.isEmpty()) return
+        val me = settings.value.displayName
+        val a = seatName(after, attacker, me)
+        val b = victims.joinToString(" & ") { seatName(after, it, me) }
+        _banner.value = CaptureBanner(System.nanoTime(), CaptureLines.random(rng)(a, b), attacker)
     }
 
     /** Plays computer turns, one after another, with pauses, until it is a human's turn. */

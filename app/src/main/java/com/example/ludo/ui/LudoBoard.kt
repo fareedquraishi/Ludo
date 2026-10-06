@@ -96,6 +96,11 @@ fun LudoBoard(
         ) { drawBoard(state, movable, spots, pulse.value) }
 
         BoardLogos(state)
+
+        // Tokens on top of everything (taps pass through to the canvas below).
+        Canvas(Modifier.fillMaxSize()) {
+            inset(BoardPad.toPx()) { drawTokens(state, movable, spots) }
+        }
     }
 }
 
@@ -259,26 +264,45 @@ private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spot
     tri(PlayerColor.RED.tint, p(6f, 6f), p(9f, 6f))
     tri(PlayerColor.BLUE.tint, p(9f, 6f), p(9f, 9f))
     tri(PlayerColor.YELLOW.tint, p(6f, 9f), p(9f, 9f))
+}
 
-    // Tokens: soft shadow, dark rim, glossy radial fill. Movable ones get a #002D78 ring.
+/** Tokens are drawn in their own layer above the logos, so a token on a stopover tile covers the logo. */
+private fun DrawScope.drawTokens(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>) {
+    val cell = size.width / BoardGeometry.GRID
     state.tokens.forEach { t ->
-        val c = spots.getValue(t).let { Offset(it.x * cell, it.y * cell) }
-        val r = cell * 0.34f
-        val tint = t.color.tint
-        drawCircle(Color(0x55000000), r, c + Offset(0f, cell * 0.05f))
-        drawCircle(Color(0xFF111111), r + cell * 0.04f, c)
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(lerp(tint, Color.White, 0.55f), tint, lerp(tint, Color.Black, 0.25f)),
-                center = c - Offset(r * 0.35f, r * 0.35f),
-                radius = r * 1.6f,
-            ),
-            radius = r,
-            center = c,
-        )
-        drawCircle(Color(0x66FFFFFF), r * 0.26f, c - Offset(r * 0.3f, r * 0.36f))
-        if (t in movable) drawCircle(LudoColors.Frame, cell * 0.47f, c, style = Stroke(cell * 0.09f))
+        val p = spots.getValue(t)
+        drawCoin(t.color.tint, Offset(p.x * cell, p.y * cell), cell, t in movable)
     }
 }
 
-
+/** Round "coin" token: white rim, coloured face with a groove ring, and a raised centre dome. */
+private fun DrawScope.drawCoin(tint: Color, c: Offset, cell: Float, movable: Boolean) {
+    val r = cell * 0.38f
+    drawCircle(Color(0x55000000), r, c + Offset(0f, cell * 0.06f))
+    drawCircle(Color(0xFF0E1A33), r + cell * 0.04f, c)
+    drawCircle(Color.White, r, c)
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(lerp(tint, Color.White, 0.45f), tint, lerp(tint, Color.Black, 0.3f)),
+            center = c - Offset(r * 0.3f, r * 0.3f),
+            radius = r * 1.5f,
+        ),
+        radius = r * 0.84f,
+        center = c,
+    )
+    drawCircle(lerp(tint, Color.Black, 0.45f).copy(alpha = 0.55f), r * 0.58f, c, style = Stroke(cell * 0.05f))
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(lerp(tint, Color.White, 0.65f), tint),
+            center = c - Offset(r * 0.12f, r * 0.12f),
+            radius = r * 0.5f,
+        ),
+        radius = r * 0.38f,
+        center = c,
+    )
+    drawCircle(Color(0x99FFFFFF), r * 0.1f, c - Offset(r * 0.14f, r * 0.16f))
+    if (movable) {
+        drawCircle(Color.White, cell * 0.5f, c, style = Stroke(cell * 0.13f))
+        drawCircle(LudoColors.Frame, cell * 0.5f, c, style = Stroke(cell * 0.07f))
+    }
+}

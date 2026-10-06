@@ -1,7 +1,15 @@
 package com.example.ludo.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -47,6 +56,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -57,12 +70,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ludo.R
 import com.example.ludo.data.Settings
 import com.example.ludo.model.LudoGameState
 import com.example.ludo.model.PlayerColor
 import com.example.ludo.model.Rules
 import com.example.ludo.model.Seats
+import com.example.ludo.viewmodel.CaptureBanner
 import com.example.ludo.viewmodel.LudoViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 @Composable
 fun LudoScreen(viewModel: LudoViewModel = viewModel()) {
@@ -199,6 +217,8 @@ private fun GameContent(s: LudoGameState, vm: LudoViewModel, settings: Settings)
 private fun GameBody(s: LudoGameState, vm: LudoViewModel, settings: Settings, modifier: Modifier) {
     val humanTurn = s.current !in s.bots
     val timer = vm.timer.collectAsState()
+    val rolling by vm.rolling.collectAsState()
+    val banner by vm.banner.collectAsState()
     @Composable
     fun Seat(color: PlayerColor, seatModifier: Modifier) {
         if (color in s.players) {
@@ -206,8 +226,13 @@ private fun GameBody(s: LudoGameState, vm: LudoViewModel, settings: Settings, mo
                 color = color,
                 name = seatName(s, color, settings.displayName),
                 active = s.winner == null && s.current == color,
-                lastRoll = s.lastRolls[color],
-                canRoll = s.current == color && humanTurn && s.canRoll,
+                rolling = rolling && s.current == color,
+                // Numbers only show for the player on turn, once they have rolled; otherwise the Euro "e".
+                shownDice = s.dice.takeIf {
+                    s.winner == null && s.current == color && s.diceBy == color &&
+                        (s.awaitingMove || s.noMove || s.busy)
+                },
+                canRoll = s.current == color && humanTurn && s.canRoll && !rolling,
                 onRoll = vm::rollDice,
                 timer = timer,
                 modifier = seatModifier,
@@ -233,7 +258,10 @@ private fun GameBody(s: LudoGameState, vm: LudoViewModel, settings: Settings, mo
                 Seat(PlayerColor.GREEN, Modifier.weight(1f))
                 Seat(PlayerColor.RED, Modifier.weight(1f))
             }
-            LudoBoard(s, onTokenTap = vm::onTokenTap, modifier = Modifier.fillMaxWidth())
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                LudoBoard(s, onTokenTap = vm::onTokenTap, modifier = Modifier.fillMaxWidth())
+                CaptureBannerView(banner, Modifier.padding(top = 36.dp, start = 24.dp, end = 24.dp))
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Seat(PlayerColor.YELLOW, Modifier.weight(1f))
                 Seat(PlayerColor.BLUE, Modifier.weight(1f))
@@ -267,7 +295,8 @@ private fun PlayerStrip(
     color: PlayerColor,
     name: String,
     active: Boolean,
-    lastRoll: Int?,
+    rolling: Boolean,
+    shownDice: Int?,
     canRoll: Boolean,
     onRoll: () -> Unit,
     timer: State<Float?>,
@@ -302,10 +331,11 @@ private fun PlayerStrip(
                 fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                 color = if (active) LudoColors.OnNavy else LudoColors.Muted,
             )
-            DicePips(
-                lastRoll,
-                color.tint,
-                Modifier.size(38.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled = canRoll, onClick = onRoll),
+            DieFace(
+                rolling = rolling,
+                value = shownDice,
+                ring = color.tint,
+                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled = canRoll, onClick = onRoll),
             )
         }
         Spacer(Modifier.height(6.dp))
@@ -324,6 +354,75 @@ private fun PlayerStrip(
                     }
                 },
         )
+    }
+}
+
+/**
+ * The dice in a player strip: the Euro "e" when idle, shuffling faces while rolling,
+ * and the number once the player on turn has rolled.
+ */
+@Composable
+private fun DieFace(rolling: Boolean, value: Int?, ring: Color, modifier: Modifier = Modifier) {
+    var shuffle by remember { mutableStateOf(1) }
+    LaunchedEffect(rolling) {
+        while (rolling) {
+            shuffle = Random.nextInt(1, 7)
+            delay(70)
+        }
+    }
+    val wobble by rememberInfiniteTransition(label = "dieWobble").animateFloat(
+        initialValue = -14f,
+        targetValue = 14f,
+        animationSpec = infiniteRepeatable(tween(110), RepeatMode.Reverse),
+        label = "wobble",
+    )
+    Box(modifier.graphicsLayer { rotationZ = if (rolling) wobble else 0f }, contentAlignment = Alignment.Center) {
+        DicePips(if (rolling) shuffle else value, ring, Modifier.fillMaxSize())
+        if (!rolling && value == null) {
+            Image(
+                painter = painterResource(R.drawable.euro_e_mark),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().padding(7.dp),
+            )
+        }
+    }
+}
+
+/** "Ayesha beat Fareed!" pops in over the board, then fades out. */
+@Composable
+private fun CaptureBannerView(banner: CaptureBanner?, modifier: Modifier = Modifier) {
+    if (banner == null) return
+    key(banner.id) {
+        val fade = remember { Animatable(0f) }
+        val pop = remember { Animatable(0.5f) }
+        LaunchedEffect(Unit) {
+            launch { pop.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = 260f)) }
+            fade.animateTo(1f, tween(120))
+            delay(1500)
+            fade.animateTo(0f, tween(500))
+        }
+        val shape = RoundedCornerShape(16.dp)
+        Box(
+            modifier
+                .graphicsLayer {
+                    alpha = fade.value
+                    scaleX = pop.value
+                    scaleY = pop.value
+                }
+                .clip(shape)
+                .background(banner.color.tint)
+                .border(2.dp, Color.White, shape)
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+        ) {
+            Text(
+                banner.text,
+                fontWeight = FontWeight.Black,
+                fontSize = 20.sp,
+                textAlign = TextAlign.Center,
+                color = if (banner.color == PlayerColor.YELLOW) LudoColors.Frame else Color.White,
+            )
+        }
     }
 }
 

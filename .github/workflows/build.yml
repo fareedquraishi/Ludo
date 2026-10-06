@@ -1,4 +1,4 @@
-﻿name: Build LudoV4 APK
+name: Build Ludo APK
 
 on:
   push:
@@ -37,16 +37,25 @@ jobs:
         run: |
           grep -h -E -A12 'What went wrong|^e: |error:|FAILURE' build.log | head -120 || true
 
-      - name: Rename APK to LudoV4.apk
+      - name: Name the APK after this commit
+        id: apkname
+        run: |
+          # e.g. "UI: dice shows Euro e + capture banners" -> Ludo-run15-ui-dice-shows-euro-e-capture-banners
+          msg=$(git log -1 --pretty=%s)
+          slug=$(echo "$msg" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-45 | sed -E 's/-+$//')
+          [ -z "$slug" ] && slug=build
+          echo "name=Ludo-run${{ github.run_number }}-${slug}" >> "$GITHUB_OUTPUT"
+
+      - name: Copy APK
         run: |
           mkdir -p artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk artifacts/LudoV4.apk
+          cp app/build/outputs/apk/debug/app-debug.apk "artifacts/${{ steps.apkname.outputs.name }}.apk"
 
-      - name: Upload LudoV4.apk
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: LudoV4
-          path: artifacts/LudoV4.apk
+          name: ${{ steps.apkname.outputs.name }}
+          path: artifacts/${{ steps.apkname.outputs.name }}.apk
           if-no-files-found: error
 
       - name: Unit tests
