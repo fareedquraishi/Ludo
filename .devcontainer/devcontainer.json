@@ -1,0 +1,7 @@
+{
+  "name": "Ludo Android",
+  "image": "mcr.microsoft.com/devcontainers/java:1-17-bookworm",
+  "hostRequirements": { "cpus": 4, "memory": "8gb" },
+  "postCreateCommand": "bash setup.sh",
+  "customizations": { "vscode": { "extensions": ["fwcd.kotlin"] } }
+}
