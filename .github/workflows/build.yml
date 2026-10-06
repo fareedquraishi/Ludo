@@ -37,14 +37,10 @@ jobs:
         run: |
           grep -h -E -A12 'What went wrong|^e: |error:|FAILURE' build.log | head -120 || true
 
-      - name: Name the APK after this commit
+      - name: Name the APK after this run
         id: apkname
         run: |
-          # e.g. "UI: dice shows Euro e + capture banners" -> Ludo-run15-ui-dice-shows-euro-e-capture-banners
-          msg=$(git log -1 --pretty=%s)
-          slug=$(echo "$msg" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-45 | sed -E 's/-+$//')
-          [ -z "$slug" ] && slug=build
-          echo "name=Ludo-run${{ github.run_number }}-${slug}" >> "$GITHUB_OUTPUT"
+          echo "name=Ludo-build-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Copy APK
         run: |

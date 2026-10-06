@@ -233,6 +233,7 @@ private fun GameBody(s: LudoGameState, vm: LudoViewModel, settings: Settings, mo
                         (s.awaitingMove || s.noMove || s.busy)
                 },
                 canRoll = s.current == color && humanTurn && s.canRoll && !rolling,
+                bonus = s.winner == null && s.current == color && s.sixStreak > 0 && s.canRoll,
                 onRoll = vm::rollDice,
                 timer = timer,
                 modifier = seatModifier,
@@ -248,7 +249,6 @@ private fun GameBody(s: LudoGameState, vm: LudoViewModel, settings: Settings, mo
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         BrandTitle(size = 30.sp)
-        TurnHint(s, humanTurn, seatName(s, s.current, settings.displayName))
 
         Column(
             Modifier.fillMaxWidth().widthIn(max = 560.dp),
@@ -269,6 +269,7 @@ private fun GameBody(s: LudoGameState, vm: LudoViewModel, settings: Settings, mo
         }
 
         Button(onClick = vm::rollDice, enabled = s.canRoll && humanTurn) { Text("Roll dice", fontWeight = FontWeight.Bold) }
+        TurnHint(s, humanTurn, seatName(s, s.current, settings.displayName))
     }
 }
 
@@ -298,6 +299,7 @@ private fun PlayerStrip(
     rolling: Boolean,
     shownDice: Int?,
     canRoll: Boolean,
+    bonus: Boolean,
     onRoll: () -> Unit,
     timer: State<Float?>,
     modifier: Modifier = Modifier,
@@ -322,21 +324,28 @@ private fun PlayerStrip(
                     color = if (color == PlayerColor.YELLOW) LudoColors.Frame else Color.White,
                 )
             }
-            Text(
-                name,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontSize = 14.sp,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                color = if (active) LudoColors.OnNavy else LudoColors.Muted,
-            )
-            DieFace(
-                rolling = rolling,
-                value = shownDice,
-                ring = color.tint,
-                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled = canRoll, onClick = onRoll),
-            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    name,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 14.sp,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                    color = if (active) LudoColors.OnNavy else LudoColors.Muted,
+                )
+                // The dice sits directly under the player's name.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DieFace(
+                        rolling = rolling,
+                        value = shownDice,
+                        ring = color.tint,
+                        modifier = Modifier.size(38.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled = canRoll, onClick = onRoll),
+                    )
+                    if (bonus) {
+                        Text("Roll again!", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = LudoColors.Gold, maxLines = 1)
+                    }
+                }
+            }
         }
         Spacer(Modifier.height(6.dp))
         // The bar is drawn from the timer state in the draw phase, so it never recomposes the screen.
@@ -503,6 +512,11 @@ private fun SettingsDialog(settings: Settings, onChange: ((Settings) -> Settings
                     Switch(checked = settings.sfxOn, onCheckedChange = { v -> onChange { it.copy(sfxOn = v) } })
                     Text("Sound effects")
                 }
+                Text(
+                    "Music: \"Game Level Pixel Quest Loop\" by alex-morgan, via Pixabay",
+                    fontSize = 11.sp,
+                    color = LudoColors.Muted,
+                )
             }
         },
     )
