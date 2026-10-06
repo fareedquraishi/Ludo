@@ -46,13 +46,8 @@ private val InnerLine = 0.5.dp
 private val LineGap = 3.dp
 private val BoardPad = 9.dp
 
-// The 4 coloured entry/start squares that get the small white Euro logo.
-private val EntrySquares = setOf(
-    PlayerColor.GREEN.startSquare,   // 2
-    PlayerColor.RED.startSquare,     // 15
-    PlayerColor.BLUE.startSquare,    // 28
-    PlayerColor.YELLOW.startSquare,  // 41
-)
+// The 4 uncoloured "stopover" / safe squares on the track where the white Euro logo goes.
+private val StopoverSquares = setOf(10, 23, 36, 49)
 
 @Composable
 fun LudoBoard(
@@ -102,28 +97,36 @@ private fun BoardLogos(state: LudoGameState) {
         val padPx = with(LocalDensity.current) { padDp.toPx() }
         val cellPx = (boxPx - 2 * padPx) / BoardGeometry.GRID
 
-        val active = state.players.toSet()
-
-        // Small white Euro logo on each coloured entry square (dim if that colour isn't playing)
-        EntrySquares.forEach { sq ->
+        // Small white Euro logo inside a navy disc on each uncoloured stopover square
+        StopoverSquares.forEach { sq ->
             val (c, r) = BoardGeometry.trackCells.getValue(sq)
-            val owner = PlayerColor.entries.first { it.startSquare == sq }
-            val alpha = if (owner in active) 0.95f else 0.35f
-            val sizePx = cellPx * 0.62f
-            val leftPx = padPx + (c + 0.5f) * cellPx - sizePx / 2f
-            val topPx  = padPx + (r + 0.5f) * cellPx - sizePx / 2f
+            val discPx = cellPx * 0.78f
+            val logoPx = cellPx * 0.60f
+            val centreX = padPx + (c + 0.5f) * cellPx
+            val centreY = padPx + (r + 0.5f) * cellPx
+
+            // Navy disc behind the logo so the white logo reads on the white tile
+            androidx.compose.foundation.Canvas(
+                modifier = Modifier
+                    .offset(
+                        x = with(LocalDensity.current) { (centreX - discPx / 2f).toDp() },
+                        y = with(LocalDensity.current) { (centreY - discPx / 2f).toDp() },
+                    )
+                    .size(with(LocalDensity.current) { discPx.toDp() }),
+            ) {
+                drawCircle(LudoColors.Frame)
+            }
 
             Image(
                 painter = painterResource(R.drawable.euro_logo_white_cell),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                alpha = alpha,
                 modifier = Modifier
                     .offset(
-                        x = with(LocalDensity.current) { leftPx.toDp() },
-                        y = with(LocalDensity.current) { topPx.toDp() },
+                        x = with(LocalDensity.current) { (centreX - logoPx / 2f).toDp() },
+                        y = with(LocalDensity.current) { (centreY - logoPx / 2f).toDp() },
                     )
-                    .size(with(LocalDensity.current) { sizePx.toDp() }),
+                    .size(with(LocalDensity.current) { logoPx.toDp() }),
             )
         }
 
@@ -241,4 +244,5 @@ private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spot
         if (t in movable) drawCircle(LudoColors.Frame, cell * 0.47f, c, style = Stroke(cell * 0.09f))
     }
 }
+
 
