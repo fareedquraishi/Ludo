@@ -1,8 +1,13 @@
-package com.example.ludo.ui
+﻿package com.example.ludo.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -16,7 +21,11 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.example.ludo.R
 import com.example.ludo.engine.LudoEngine
 import com.example.ludo.model.LudoGameState
 import com.example.ludo.model.PlayerColor
@@ -37,6 +46,14 @@ private val InnerLine = 0.5.dp
 private val LineGap = 3.dp
 private val BoardPad = 9.dp
 
+// The 4 coloured entry/start squares that get the small white Euro logo.
+private val EntrySquares = setOf(
+    PlayerColor.GREEN.startSquare,   // 2
+    PlayerColor.RED.startSquare,     // 15
+    PlayerColor.BLUE.startSquare,    // 28
+    PlayerColor.YELLOW.startSquare,  // 41
+)
+
 @Composable
 fun LudoBoard(
     state: LudoGameState,
@@ -46,20 +63,86 @@ fun LudoBoard(
     val movable = LudoEngine.movableTokens(state)
     val spots = BoardGeometry.layoutTokens(state.tokens)
 
-    Canvas(
-        modifier = modifier
-            .aspectRatio(1f) // scales with the available width: phones, tablets, foldables
-            .pointerInput(state) {
-                detectTapGestures { tap ->
-                    val pad = BoardPad.toPx()
-                    val cell = (size.width - 2 * pad) / BoardGeometry.GRID
-                    val tx = (tap.x - pad) / cell
-                    val ty = (tap.y - pad) / cell
-                    val hit = movable.minByOrNull { spots.getValue(it).dist(tx, ty) }
-                    if (hit != null && spots.getValue(hit).dist(tx, ty) < 0.6f) onTokenTap(hit)
-                }
-            },
-    ) { drawBoard(state, movable, spots) }
+    // Overlay logos are positioned via cell coordinates. We need pixel size to place them:
+    // use BoxWithConstraints-free approach by measuring the Box inside the layout.
+    Box(
+        modifier = modifier.aspectRatio(1f),
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(state) {
+                    detectTapGestures { tap ->
+                        val pad = BoardPad.toPx()
+                        val cell = (size.width - 2 * pad) / BoardGeometry.GRID
+                        val tx = (tap.x - pad) / cell
+                        val ty = (tap.y - pad) / cell
+                        val hit = movable.minByOrNull { spots.getValue(it).dist(tx, ty) }
+                        if (hit != null && spots.getValue(hit).dist(tx, ty) < 0.6f) onTokenTap(hit)
+                    }
+                },
+        ) { drawBoard(state, movable, spots) }
+
+        BoardLogos(state)
+    }
+}
+
+/**
+ * Overlays the small white Euro logo on the 4 coloured entry squares and the big coloured
+ * Euro logo on the centre home. Uses a Layout-free approach: measure the box's width to
+ * derive the cell size, then offset each Image.
+ */
+@Composable
+private fun BoardLogos(state: LudoGameState) {
+    val padDp = BoardPad
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        val boxPx = with(LocalDensity.current) { maxWidth.toPx() }
+        val padPx = with(LocalDensity.current) { padDp.toPx() }
+        val cellPx = (boxPx - 2 * padPx) / BoardGeometry.GRID
+
+        val active = state.mode.players.toSet()
+
+        // Small white Euro logo on each coloured entry square (dim if that colour isn't playing)
+        EntrySquares.forEach { sq ->
+            val (c, r) = BoardGeometry.trackCells.getValue(sq)
+            val owner = PlayerColor.entries.first { it.startSquare == sq }
+            val alpha = if (owner in active) 0.95f else 0.35f
+            val sizePx = cellPx * 0.62f
+            val leftPx = padPx + (c + 0.5f) * cellPx - sizePx / 2f
+            val topPx  = padPx + (r + 0.5f) * cellPx - sizePx / 2f
+
+            Image(
+                painter = painterResource(R.drawable.euro_logo_white_cell),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                alpha = alpha,
+                modifier = Modifier
+                    .offset(
+                        x = with(LocalDensity.current) { leftPx.toDp() },
+                        y = with(LocalDensity.current) { topPx.toDp() },
+                    )
+                    .size(with(LocalDensity.current) { sizePx.toDp() }),
+            )
+        }
+
+        // Big coloured Euro logo in the centre home
+        val centrePx = cellPx * 2.4f
+        val leftPx = padPx + 7.5f * cellPx - centrePx / 2f
+        val topPx  = padPx + 7.5f * cellPx - centrePx / 2f
+        Image(
+            painter = painterResource(R.drawable.euro_logo_colour_centre),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .offset(
+                    x = with(LocalDensity.current) { leftPx.toDp() },
+                    y = with(LocalDensity.current) { topPx.toDp() },
+                )
+                .size(with(LocalDensity.current) { centrePx.toDp() }),
+        )
+    }
 }
 
 private fun DrawScope.drawBoard(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>) {
@@ -95,7 +178,7 @@ private fun DrawScope.drawFrame() {
 
 private fun DrawScope.drawCells(state: LudoGameState, movable: List<Token>, spots: Map<Token, Pt>) {
     val cell = size.width / BoardGeometry.GRID
-    val active = state.players.toSet()
+    val active = state.mode.players.toSet()
     val line = Color(0x33000000)
     fun cellRect(c: Int, r: Int, fill: Color) {
         drawRect(fill, Offset(c * cell, r * cell), Size(cell, cell))
