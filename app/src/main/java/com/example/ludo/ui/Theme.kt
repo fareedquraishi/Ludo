@@ -58,32 +58,26 @@ fun LudoTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = LudoDarkScheme, content = content)
 }
 
-/**
- * Navy background with the big faint Euro logo behind everything.
- * Tune the watermark here: logoAlpha (strength) and logoWidthFraction (size).
- */
+/** Navy background; content is kept clear of the system bars. */
 @Composable
-fun BrandBackground(
-    modifier: Modifier = Modifier,
-    logoAlpha: Float = 0.14f,
-    logoWidthFraction: Float = 1.0f,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier = modifier.fillMaxSize().background(LudoColors.Navy),
-        contentAlignment = Alignment.Center,
-    ) {
-        Image(
-            painter = painterResource(R.drawable.euro_logo_white),
-            contentDescription = null,
-            alpha = logoAlpha,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxWidth(logoWidthFraction),
-        )
+fun BrandBackground(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(modifier = modifier.fillMaxSize().background(LudoColors.Navy)) {
         CompositionLocalProvider(LocalContentColor provides LudoColors.OnNavy) {
             Box(Modifier.fillMaxSize().safeDrawingPadding()) { content() }
         }
     }
+}
+
+/** The faint white Euro logo. Size and position are decided by the caller (modifier). */
+@Composable
+fun EuroWatermark(modifier: Modifier = Modifier, alpha: Float = 0.14f) {
+    Image(
+        painter = painterResource(R.drawable.euro_logo_white),
+        contentDescription = null,
+        alpha = alpha,
+        contentScale = ContentScale.Fit,
+        modifier = modifier,
+    )
 }
 
 /** Gold "LUDO" lettering with a white outline, like the splash screen. */

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -62,9 +63,17 @@ private fun PanelCard(modifier: Modifier = Modifier, content: @Composable () -> 
     ) { content() }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SetupPanel(onStart: (List<PlayerColor>, Rules, Set<PlayerColor>) -> Unit) {
+    Box(Modifier.fillMaxSize()) {
+        EuroWatermark(Modifier.align(Alignment.Center).fillMaxWidth(), alpha = 0.14f)
+        SetupContent(onStart)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SetupContent(onStart: (List<PlayerColor>, Rules, Set<PlayerColor>) -> Unit) {
     var count by remember { mutableStateOf(4) }
     var human by remember { mutableStateOf(PlayerColor.GREEN) }
     var sixLimit by remember { mutableStateOf<Int?>(null) }
@@ -124,10 +133,25 @@ private fun SetupPanel(onStart: (List<PlayerColor>, Rules, Set<PlayerColor>) -> 
 
 @Composable
 private fun GameContent(s: LudoGameState, vm: LudoViewModel) {
+    Column(Modifier.fillMaxSize()) {
+        GameBody(s, vm, Modifier.weight(1f).fillMaxWidth())
+        EuroWatermark(Modifier.fillMaxWidth().height(84.dp).padding(bottom = 10.dp), alpha = 0.22f)
+    }
+    s.winner?.let { w ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(if (s.bots.isNotEmpty() && w !in s.bots) "You win!" else "${w.label} wins!") },
+            confirmButton = { TextButton(onClick = vm::reset) { Text("New game") } },
+        )
+    }
+}
+
+@Composable
+private fun GameBody(s: LudoGameState, vm: LudoViewModel, modifier: Modifier) {
     val humanTurn = s.current !in s.bots
     val youColor = if (s.bots.isNotEmpty()) s.players.firstOrNull { it !in s.bots } else null
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        modifier.verticalScroll(rememberScrollState()).padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -147,13 +171,6 @@ private fun GameContent(s: LudoGameState, vm: LudoViewModel) {
         Column(Modifier.fillMaxWidth()) {
             s.log.takeLast(3).forEach { Text(it, fontSize = 13.sp, color = LudoColors.Muted) }
         }
-    }
-    s.winner?.let { w ->
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text(if (s.bots.isNotEmpty() && w !in s.bots) "You win!" else "${w.label} wins!") },
-            confirmButton = { TextButton(onClick = vm::reset) { Text("New game") } },
-        )
     }
 }
 

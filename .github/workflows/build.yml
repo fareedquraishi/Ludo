@@ -1,4 +1,4 @@
-﻿name: Build APK
+﻿name: Build LudoV4 APK
 
 on:
   push:
@@ -37,11 +37,16 @@ jobs:
         run: |
           grep -h -E -A12 'What went wrong|^e: |error:|FAILURE' build.log | head -120 || true
 
-      - name: Upload APK
+      - name: Rename APK to LudoV4.apk
+        run: |
+          mkdir -p artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk artifacts/LudoV4.apk
+
+      - name: Upload LudoV4.apk
         uses: actions/upload-artifact@v4
         with:
-          name: ludo-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: LudoV4
+          path: artifacts/LudoV4.apk
           if-no-files-found: error
 
       - name: Unit tests
