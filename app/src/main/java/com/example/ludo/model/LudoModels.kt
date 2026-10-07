@@ -62,23 +62,29 @@ data class Rules(
     val homeBonus: Boolean = false,
 )
 
+/**
+ * A turn has two phases. First the player throws every roll they have earned (a six earns another
+ * roll) and each number is kept in [queue]. Once no roll is left ([pendingRolls] == 0) the player
+ * spends the numbers on tokens, in any order, until the queue is empty.
+ */
 data class LudoGameState(
     val players: List<PlayerColor> = PlayerColor.entries.toList(),
     val rules: Rules = Rules(),
     val bots: Set<PlayerColor> = emptySet(),
     val tokens: List<Token> = emptyList(),
     val turnIndex: Int = 0,
-    val dice: Int? = null,
-    val lastRolls: Map<PlayerColor, Int> = emptyMap(), // each player's most recent roll, for the player strips
-    val diceBy: PlayerColor? = null,
-    val awaitingMove: Boolean = false,
-    val noMove: Boolean = false,      // rolled, nothing can move: shown for a moment, then the turn passes
-    val busy: Boolean = false,        // a token is hopping: ignore taps
+    val queue: List<Int> = emptyList(),   // numbers rolled this turn and not yet spent (the "dice row")
+    val pendingRolls: Int = 1,            // rolls the player on turn still has to throw
+    val selected: Int? = null,            // the number the next token tap will spend
+    val lastRoll: Int? = null,            // the most recent roll of this turn, for the player strip
+    val awaitingMove: Boolean = false,    // spend phase: waiting for a token to be chosen
+    val noMove: Boolean = false,          // nothing left can move: shown for a moment, then the turn passes
+    val busy: Boolean = false,            // a token is hopping: ignore taps
     val sixStreak: Int = 0,
     val winner: PlayerColor? = null,
     val notice: String? = null,       // e.g. "Blue starts (random draw)"
     val log: List<String> = emptyList(),
 ) {
     val current: PlayerColor get() = players[turnIndex]
-    val canRoll: Boolean get() = winner == null && !awaitingMove && !noMove && !busy
+    val canRoll: Boolean get() = winner == null && pendingRolls > 0 && !awaitingMove && !noMove && !busy
 }

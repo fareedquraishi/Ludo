@@ -18,6 +18,7 @@ enum class Fx(val res: Int, val volume: Float = 1f) {
     TURN(R.raw.sfx_turn, 0.8f),
     TICK(R.raw.sfx_tick, 0.6f),
     CLICK(R.raw.sfx_click, 0.7f),
+    SIX(R.raw.sfx_six, 0.55f),
 }
 
 /** Short effects through SoundPool, background music through a looping MediaPlayer. */
@@ -53,10 +54,15 @@ class SoundManager(context: Context) {
         refreshMusic()
     }
 
+    private var sixStream = 0
+
     fun play(fx: Fx) {
         if (!sfxOn) return
         val id = ids[fx] ?: return
-        pool.play(id, fx.volume, fx.volume, 1, 0, 1f)
+        // A new six restarts the cheer instead of stacking on top of the last one.
+        if (fx == Fx.SIX && sixStream != 0) pool.stop(sixStream)
+        val stream = pool.play(id, fx.volume, fx.volume, 1, 0, 1f)
+        if (fx == Fx.SIX) sixStream = stream
     }
 
     private fun refreshMusic() {

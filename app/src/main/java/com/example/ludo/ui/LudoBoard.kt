@@ -8,19 +8,23 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -139,6 +143,41 @@ private fun BoardLogos(state: LudoGameState) {
                     )
                     .size(with(LocalDensity.current) { logoPx.toDp() }),
             )
+        }
+
+        // Winning cups: four slots along the top edge of each home yard. A gold cup fills in
+        // for every token of that colour that has reached home.
+        val slotDp = with(LocalDensity.current) { (cellPx * 0.86f).toDp() }
+        val cupDp = with(LocalDensity.current) { (cellPx * 0.62f).toDp() }
+        state.players.forEach { colour ->
+            val (ox, oy) = BoardGeometry.baseOrigin(colour)
+            val homeCount = state.tokens.count { it.color == colour && it.isHome }
+            val pitch = cellPx * 1.2f
+            val firstX = padPx + (ox + 3f) * cellPx - pitch * 1.5f
+            val centreY = padPx + (oy + 0.5f) * cellPx
+            for (i in 0 until 4) {
+                val full = i < homeCount
+                val centreX = firstX + pitch * i
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = with(LocalDensity.current) { (centreX - cellPx * 0.43f).toDp() },
+                            y = with(LocalDensity.current) { (centreY - cellPx * 0.43f).toDp() },
+                        )
+                        .size(slotDp)
+                        .background(if (full) Color(0xCC002D78) else Color(0x40002D78), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.trophy_cup),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        alpha = if (full) 1f else 0.3f,
+                        colorFilter = if (full) null else ColorFilter.tint(Color.White),
+                        modifier = Modifier.size(cupDp),
+                    )
+                }
+            }
         }
 
         // Big coloured Euro logo in the centre home

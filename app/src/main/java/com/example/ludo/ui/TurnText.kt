@@ -12,7 +12,7 @@ fun turnMessage(s: LudoGameState): TurnMessage {
     val bot = s.current in s.bots
     val solo = s.bots.isNotEmpty()
     val title = if (solo && !bot) "Your turn" else "${s.current.label}'s turn"
-    val dice = s.dice
+    val dice = s.lastRoll
     val sub = when {
         s.noMove -> "No move (rolled $dice)"
         s.busy -> "Moving..."

@@ -143,6 +143,8 @@ private fun SetupContent(onStart: (List<PlayerColor>, Rules, Set<PlayerColor>) -
     var human by remember { mutableStateOf(PlayerColor.GREEN) }
     var sixLimit by remember { mutableStateOf<Int?>(null) }
     var vsComputer by remember { mutableStateOf(true) }
+    var captureBonus by remember { mutableStateOf(true) }
+    var homeBonus by remember { mutableStateOf(true) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -180,6 +182,29 @@ private fun SetupContent(onStart: (List<PlayerColor>, Rules, Set<PlayerColor>) -
                         FilterChip(selected = sixLimit == n, onClick = { sixLimit = n }, label = { Text(n?.toString() ?: "Unlimited") })
                     }
                 }
+                Text("Bonus roll on", fontWeight = FontWeight.SemiBold)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = captureBonus,
+                        onClick = { captureBonus = !captureBonus },
+                        label = { Text("\u2694 Capture") },
+                    )
+                    FilterChip(
+                        selected = homeBonus,
+                        onClick = { homeBonus = !homeBonus },
+                        label = { Text("\uD83C\uDFE0 Home") },
+                    )
+                }
+                Text(
+                    when {
+                        captureBonus && homeBonus -> "Capture a token or reach home: roll again"
+                        captureBonus -> "Capture a token: roll again"
+                        homeBonus -> "Reach home: roll again"
+                        else -> "Only a six gives a bonus roll"
+                    },
+                    fontSize = 12.sp,
+                    color = LudoColors.Muted,
+                )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Switch(checked = vsComputer, onCheckedChange = { vsComputer = it })
                     Text("Computer plays the other colours")
@@ -190,7 +215,7 @@ private fun SetupContent(onStart: (List<PlayerColor>, Rules, Set<PlayerColor>) -
             onClick = {
                 val players = Seats.of(count, human)
                 val bots = if (vsComputer) players.filter { it != human }.toSet() else emptySet()
-                onStart(players, Rules(sixLimit = sixLimit), bots)
+                onStart(players, Rules(sixLimit = sixLimit, captureBonus = captureBonus, homeBonus = homeBonus), bots)
             },
         ) { Text("Start game", fontWeight = FontWeight.Bold) }
     }
@@ -222,22 +247,35 @@ private fun GameBody(s: LudoGameState, vm: LudoViewModel, settings: Settings, mo
     @Composable
     fun Seat(color: PlayerColor, seatModifier: Modifier) {
         if (color in s.players) {
-            PlayerStrip(
-                color = color,
-                name = seatName(s, color, settings.displayName),
-                active = s.winner == null && s.current == color,
-                rolling = rolling && s.current == color,
-                // Numbers only show for the player on turn, once they have rolled; otherwise the Euro "e".
-                shownDice = s.dice.takeIf {
-                    s.winner == null && s.current == color && s.diceBy == color &&
-                        (s.awaitingMove || s.noMove || s.busy)
-                },
-                canRoll = s.current == color && humanTurn && s.canRoll && !rolling,
-                bonus = s.winner == null && s.current == color && s.sixStreak > 0 && s.canRoll,
-                onRoll = vm::rollDice,
-                timer = timer,
-                modifier = seatModifier,
-            )
+            val onTurn = s.winner == null && s.current == color
+            Column(seatModifier) {
+                PlayerStrip(
+                    color = color,
+                    name = seatName(s, color, settings.displayName),
+                    active = onTurn,
+                    rolling = rolling && s.current == color,
+                    // The player on turn sees their latest roll here once all rolls are thrown; otherwise the Euro "e".
+                    shownDice = s.lastRoll.takeIf {
+                        onTurn && s.pendingRolls == 0 && (s.awaitingMove || s.noMove || s.busy)
+                    },
+                    canRoll = s.current == color && humanTurn && s.canRoll && !rolling,
+                    onRoll = vm::rollDice,
+                    timer = timer,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // The dice row: every number rolled this turn, each one disappears when it is used.
+                Box(Modifier.fillMaxWidth().height(36.dp), contentAlignment = Alignment.CenterStart) {
+                    if (onTurn) {
+                        DiceRow(
+                            values = s.queue,
+                            selected = s.selected,
+                            tint = color.tint,
+                            canPick = humanTurn && s.awaitingMove && !s.busy,
+                            onPick = vm::selectDie,
+                        )
+                    }
+                }
+            }
         } else {
             Spacer(seatModifier)   // colour not playing: keep the slot empty
         }
@@ -246,13 +284,13 @@ private fun GameBody(s: LudoGameState, vm: LudoViewModel, settings: Settings, mo
     Column(
         modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         BrandTitle(size = 30.sp)
 
         Column(
             Modifier.fillMaxWidth().widthIn(max = 560.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Seat(PlayerColor.GREEN, Modifier.weight(1f))
@@ -273,15 +311,47 @@ private fun GameBody(s: LudoGameState, vm: LudoViewModel, settings: Settings, mo
     }
 }
 
+/** The numbers rolled this turn, as small dice. The selected one has a gold ring; tap another to switch. */
+@Composable
+private fun DiceRow(
+    values: List<Int>,
+    selected: Int?,
+    tint: Color,
+    canPick: Boolean,
+    onPick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val selectedIndex = if (selected == null) -1 else values.indexOf(selected)
+    Row(
+        modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        values.forEachIndexed { i, v ->
+            val isSelected = canPick && i == selectedIndex
+            DicePips(
+                v,
+                if (isSelected) LudoColors.Gold else tint,
+                Modifier
+                    .size(if (isSelected) 34.dp else 30.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = canPick) { onPick(v) },
+            )
+        }
+    }
+}
+
 @Composable
 private fun TurnHint(s: LudoGameState, humanTurn: Boolean, currentName: String) {
     val solo = s.bots.isNotEmpty()
     val line = when {
         s.winner != null -> ""
-        s.noMove -> "${if (humanTurn && solo) "You" else currentName} rolled ${s.dice}: no move"
+        s.noMove -> "${if (humanTurn && solo) "You" else currentName}: no move"
         !humanTurn -> "$currentName is playing..."
         s.busy -> "Moving..."
-        s.awaitingMove -> if (solo) "Your turn: tap a highlighted token" else "$currentName: tap a highlighted token"
+        s.awaitingMove ->
+            if (s.queue.size > 1) "Pick a die, then tap a highlighted token" else "Tap a highlighted token"
+        s.queue.isNotEmpty() -> "Roll again!"
         else -> if (solo) "Your turn: roll the dice" else "$currentName's turn: roll the dice"
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -299,7 +369,6 @@ private fun PlayerStrip(
     rolling: Boolean,
     shownDice: Int?,
     canRoll: Boolean,
-    bonus: Boolean,
     onRoll: () -> Unit,
     timer: State<Float?>,
     modifier: Modifier = Modifier,
@@ -324,28 +393,21 @@ private fun PlayerStrip(
                     color = if (color == PlayerColor.YELLOW) LudoColors.Frame else Color.White,
                 )
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    name,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontSize = 14.sp,
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                    color = if (active) LudoColors.OnNavy else LudoColors.Muted,
-                )
-                // The dice sits directly under the player's name.
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DieFace(
-                        rolling = rolling,
-                        value = shownDice,
-                        ring = color.tint,
-                        modifier = Modifier.size(38.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled = canRoll, onClick = onRoll),
-                    )
-                    if (bonus) {
-                        Text("Roll again!", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = LudoColors.Gold, maxLines = 1)
-                    }
-                }
-            }
+            Text(
+                name,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontSize = 14.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                color = if (active) LudoColors.OnNavy else LudoColors.Muted,
+            )
+            DieFace(
+                rolling = rolling,
+                value = shownDice,
+                ring = color.tint,
+                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled = canRoll, onClick = onRoll),
+            )
         }
         Spacer(Modifier.height(6.dp))
         // The bar is drawn from the timer state in the draw phase, so it never recomposes the screen.
@@ -512,11 +574,14 @@ private fun SettingsDialog(settings: Settings, onChange: ((Settings) -> Settings
                     Switch(checked = settings.sfxOn, onCheckedChange = { v -> onChange { it.copy(sfxOn = v) } })
                     Text("Sound effects")
                 }
-                Text(
-                    "Music: \"Game Level Pixel Quest Loop\" by alex-morgan, via Pixabay",
-                    fontSize = 11.sp,
-                    color = LudoColors.Muted,
-                )
+                Text("Credits", fontWeight = FontWeight.SemiBold)
+                listOf(
+                    "Music: \"Game Level Pixel Quest Loop\" by alex-morgan",
+                    "Home sound: \"Victory Trumpet\" by Sarah H",
+                    "Win fanfare: \"Brass Fanfare with Timpani and Winchimes\" by u_ss015dykrt",
+                    "Six cheer: \"Crowd Cheer Applause Victory Fanfare Clapping\" by Driken Stan",
+                    "All sounds and music via Pixabay",
+                ).forEach { line -> Text(line, fontSize = 11.sp, color = LudoColors.Muted) }
             }
         },
     )

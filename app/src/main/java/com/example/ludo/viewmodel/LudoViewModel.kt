@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.ceil
 import kotlin.random.Random
 
-/** "Ayesha beat Fareed!" pop-up shown over the board for a moment after a capture. */
+/** "Ayesha beat Fareed!" / "Hamza's token is home!" pop-up shown over the board for a moment. */
 data class CaptureBanner(val id: Long, val text: String, val color: PlayerColor)
 
 /** Funny capture lines. All past tense, so they read right with "You" as well as with a name. */
@@ -52,7 +52,7 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         // Pacing ("Normal" speed), in milliseconds
         const val THINK = 600L       // banner shows, computer "thinks" before rolling
-        const val DICE = 1000L       // computer's dice number stays visible before it moves
+        const val PICK = 500L        // computer looks at its dice row before choosing a token
         const val NO_MOVE = 1100L    // "rolled N: no move" stays visible before the turn passes
         const val STEP = 230L        // time per square while a token hops
         const val CAPTURE = 350L     // beat at the destination when something is captured
@@ -148,7 +148,7 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
             launchSequence { }
         } else if (s.awaitingMove) {
             val pick = LudoEngine.chooseAiMove(s) ?: return
-            launchSequence { doMove(pick.index) }
+            launchSequence { doMove(pick.first.index, pick.second) }
         } else {
             launchSequence { doRoll() }
         }
@@ -181,11 +181,20 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
         launchSequence { doRoll() }
     }
 
-    /** Human taps a highlighted token. */
+    /** Human taps a highlighted token: it spends the selected number from the dice row. */
     fun onTokenTap(token: Token) {
         val s = _state.value ?: return
         if (s.current in s.bots || !s.awaitingMove || s.busy || token.color != s.current) return
-        launchSequence { doMove(token.index) }
+        val value = s.selected ?: return
+        launchSequence { doMove(token.index, value) }
+    }
+
+    /** Human taps a die in the dice row: the next token tap spends that number. */
+    fun selectDie(value: Int) {
+        val s = _state.value ?: return
+        if (s.current in s.bots || !s.awaitingMove || s.busy) return
+        click()
+        _state.update { it?.let { st -> LudoEngine.select(st, value) } }
     }
 
     private fun launchSequence(block: suspend () -> Unit) {
@@ -197,6 +206,8 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun doRoll() {
+        val first = _state.value ?: return
+        if (!first.canRoll) return
         sound.play(Fx.DICE)
         _rolling.value = true
         try {
@@ -204,7 +215,14 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
         } finally {
             _rolling.value = false
         }
-        _state.update { it?.let { st -> LudoEngine.roll(st, rng.nextInt(1, 7), autoPass = false) } }
+        val value = rng.nextInt(1, 7)
+        _state.update { it?.let { st -> LudoEngine.roll(st, value, autoPass = false) } }
+        if (value == 6) sound.play(Fx.SIX)
+        passIfNothingToPlay()
+    }
+
+    /** "No move" stays on screen for a moment, then the turn passes. */
+    private suspend fun passIfNothingToPlay() {
         val after = _state.value ?: return
         if (after.noMove) {
             delay(NO_MOVE)
@@ -212,18 +230,19 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Hops the token square by square, then applies the real move (capture, turn change, win). */
-    private suspend fun doMove(tokenIndex: Int) {
+    /** Hops the token square by square, then applies the real move (capture, bonus roll, turn change, win). */
+    private suspend fun doMove(tokenIndex: Int, value: Int) {
         val base = _state.value ?: return
-        val dice = base.dice ?: return
         val token = base.tokens.firstOrNull { it.color == base.current && it.index == tokenIndex } ?: return
-        if (!base.awaitingMove || !LudoEngine.canMove(token, dice)) return
+        if (!base.awaitingMove || value !in base.queue || !LudoEngine.canMove(token, value)) return
 
-        val target = if (token.inBase) 1 else token.progress + dice
-        val result = LudoEngine.move(base, tokenIndex)
+        val target = if (token.inBase) 1 else token.progress + value
+        val result = LudoEngine.move(base, tokenIndex, value)
+        // The spent number leaves the dice row as soon as the token starts to hop.
+        val hopBase = base.copy(queue = LudoEngine.withoutValue(base.queue, value), selected = null)
 
         for (p in (token.progress + 1)..target) {
-            _state.value = LudoEngine.withTokenProgress(base, token.color, token.index, p)
+            _state.value = LudoEngine.withTokenProgress(hopBase, token.color, token.index, p)
             sound.play(if (token.inBase) Fx.LEAVE else Fx.STEP)
             delay(STEP)
         }
@@ -232,6 +251,7 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
         }
         val reachedHome = result.tokens.any { it.color == token.color && it.index == token.index && it.isHome }
         if (captured) announceCapture(base, result, token.color)
+        if (reachedHome) announceHome(result, token.color)
         when {
             captured -> sound.play(Fx.CAPTURE)
             reachedHome && result.winner == null -> sound.play(Fx.HOME)
@@ -241,6 +261,7 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
         result.winner?.let { w ->
             sound.play(if (result.bots.isEmpty() || w !in result.bots) Fx.WIN else Fx.LOSE)
         }
+        passIfNothingToPlay()
     }
 
     private fun announceCapture(before: LudoGameState, after: LudoGameState, attacker: PlayerColor) {
@@ -255,18 +276,29 @@ class LudoViewModel(app: Application) : AndroidViewModel(app) {
         _banner.value = CaptureBanner(System.nanoTime(), CaptureLines.random(rng)(a, b), attacker)
     }
 
+    /** "Hamza's token is home! (2 of 4)" - also a line for the winner when the last token arrives. */
+    private fun announceHome(after: LudoGameState, color: PlayerColor) {
+        val count = after.tokens.count { it.color == color && it.isHome }
+        val name = seatName(after, color, settings.value.displayName)
+        val who = if (name == "You") "Your" else "$name's"
+        _banner.value = CaptureBanner(System.nanoTime(), "$who token is home! ($count of 4)", color)
+    }
+
     /** Plays computer turns, one after another, with pauses, until it is a human's turn. */
     private suspend fun runBots() {
         while (true) {
             val s = _state.value ?: return
             if (s.winner != null || s.current !in s.bots) return
             delay(THINK)
-            doRoll()
-            val after = _state.value ?: return
-            if (after.awaitingMove) {
-                delay(DICE)
-                val pick = LudoEngine.chooseAiMove(after) ?: return
-                doMove(pick.index)
+            val st = _state.value ?: return
+            when {
+                st.canRoll -> doRoll()                       // throws every earned roll first
+                st.awaitingMove -> {
+                    delay(PICK)
+                    val pick = LudoEngine.chooseAiMove(st) ?: return
+                    doMove(pick.first.index, pick.second)
+                }
+                else -> return
             }
         }
     }

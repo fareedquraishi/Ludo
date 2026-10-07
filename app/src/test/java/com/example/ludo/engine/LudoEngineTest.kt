@@ -6,7 +6,7 @@ import com.example.ludo.model.Rules
 import com.example.ludo.model.Seats
 import com.example.ludo.model.Token
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -28,9 +28,33 @@ class LudoEngineTest {
         var s = LudoEngine.roll(game(), 3)
         assertEquals(PlayerColor.RED, s.current)               // no move -> turn passed
         s = LudoEngine.roll(game(), 6)
-        s = LudoEngine.move(s, 0)
+        assertEquals(PlayerColor.GREEN, s.current)             // a six earns another roll first
+        assertEquals(1, s.pendingRolls)
+        assertFalse(s.awaitingMove)                            // no moving until every roll is thrown
+        s = LudoEngine.roll(s, 3)
+        assertEquals(listOf(6, 3), s.queue)
+        assertTrue(s.awaitingMove)
+        s = LudoEngine.move(s, 0)                              // the 6 (selected first) leaves base
         assertEquals(2, s.tokens.first { it.color == PlayerColor.GREEN && it.index == 0 }.trackSquare)
-        assertEquals(PlayerColor.GREEN, s.current)             // bonus roll
+        assertEquals(listOf(3), s.queue)
+        assertEquals(PlayerColor.GREEN, s.current)             // the 3 is still to spend
+        s = LudoEngine.move(s, 0)
+        assertEquals(PlayerColor.RED, s.current)               // row empty -> turn passes
+    }
+
+    @Test fun valuesStayInTheRowUntilUsed() {
+        var s = game().put(PlayerColor.GREEN, 0, 10)
+        s = LudoEngine.roll(s, 6)
+        s = LudoEngine.roll(s, 4)
+        assertEquals(listOf(6, 4), s.queue)
+        assertEquals(6, s.selected)
+        s = LudoEngine.select(s, 4)
+        assertEquals(4, s.selected)
+        s = LudoEngine.move(s, 0)                              // spends the 4 on token 0
+        assertEquals(14, s.tokens.first { it.color == PlayerColor.GREEN && it.index == 0 }.progress)
+        assertEquals(listOf(6), s.queue)
+        assertEquals(PlayerColor.GREEN, s.current)
+        assertTrue(s.awaitingMove)
     }
 
     @Test fun capturesOnNormalSquare() {
@@ -39,6 +63,22 @@ class LudoEngineTest {
         s = LudoEngine.move(LudoEngine.roll(s, 3), 0)
         assertEquals(Token.BASE, s.tokens.first { it.color == PlayerColor.RED && it.index == 0 }.progress)
         assertEquals(PlayerColor.RED, s.current)               // no capture bonus by default
+    }
+
+    @Test fun captureBonusGivesAnotherRoll() {
+        var s = game(Rules(captureBonus = true)).put(PlayerColor.GREEN, 0, 4).put(PlayerColor.RED, 0, 46)
+        s = LudoEngine.move(LudoEngine.roll(s, 3), 0)
+        assertEquals(PlayerColor.GREEN, s.current)
+        assertEquals(1, s.pendingRolls)
+        assertTrue(s.canRoll)
+    }
+
+    @Test fun homeBonusGivesAnotherRoll() {
+        var s = game(Rules(homeBonus = true)).put(PlayerColor.GREEN, 0, 55)
+        s = LudoEngine.move(LudoEngine.roll(s, 2), 0)
+        assertTrue(s.tokens.first { it.color == PlayerColor.GREEN && it.index == 0 }.isHome)
+        assertEquals(PlayerColor.GREEN, s.current)
+        assertTrue(s.canRoll)
     }
 
     @Test fun noCaptureOnSafeSquare() {
@@ -50,7 +90,7 @@ class LudoEngineTest {
 
     @Test fun exactRollNeededToFinish() {
         val s = game().put(PlayerColor.GREEN, 0, 55)
-        assertNull(LudoEngine.movableTokens(LudoEngine.roll(s, 3)).firstOrNull { it.index == 0 })
+        assertTrue(LudoEngine.movableTokens(LudoEngine.roll(s, 3)).isEmpty())
         val ok = LudoEngine.roll(s, 2)
         assertEquals(listOf(0), LudoEngine.movableTokens(ok).map { it.index })
     }
@@ -63,11 +103,16 @@ class LudoEngineTest {
         assertEquals(PlayerColor.GREEN, s.winner)
     }
 
-    @Test fun sixLimitPassesTurn() {
+    @Test fun sixLimitStopsFurtherRolls() {
         var s = game(Rules(sixLimit = 2))
-        s = LudoEngine.move(LudoEngine.roll(s, 6), 0)          // streak 1 -> bonus
-        assertEquals(PlayerColor.GREEN, s.current)
-        s = LudoEngine.move(LudoEngine.roll(s, 6), 1)          // streak 2 -> limit reached
+        s = LudoEngine.roll(s, 6)                              // streak 1 -> another roll
+        assertEquals(1, s.pendingRolls)
+        s = LudoEngine.roll(s, 6)                              // streak 2 -> limit reached, no more rolls
+        assertEquals(0, s.pendingRolls)
+        assertEquals(listOf(6, 6), s.queue)
+        assertTrue(s.awaitingMove)
+        s = LudoEngine.move(s, 0)
+        s = LudoEngine.move(s, 1)
         assertEquals(PlayerColor.RED, s.current)
     }
 
